@@ -20,7 +20,6 @@ export async function POST(req: NextRequest) {
       return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
     }
 
-    // Clean base64 header if present
     const cleanBase64 = audioBase64.replace(/^data:audio\/[a-zA-Z0-9]+;base64,/, "");
 
     if (apiKey) {
@@ -34,6 +33,11 @@ export async function POST(req: NextRequest) {
             sampleRateHertz,
             languageCode,
             enableAutomaticPunctuation: true,
+            diarizationConfig: {
+              enableSpeakerDiarization: true,
+              minSpeakerCount: 2,
+              maxSpeakerCount: 4,
+            },
             model: "default",
           },
           audio: {
@@ -47,8 +51,10 @@ export async function POST(req: NextRequest) {
         const results = data.results || [];
         if (results.length > 0 && results[0].alternatives?.length > 0) {
           const topAlt = results[0].alternatives[0];
+          const speakerTag = topAlt.words?.[0]?.speakerTag ? `Speaker ${topAlt.words[0].speakerTag}` : "Speaker 1";
           const res = NextResponse.json({
             transcript: topAlt.transcript || "",
+            speaker: speakerTag,
             confidence: topAlt.confidence || 0.9,
             source: "google-cloud-stt",
           });
@@ -57,7 +63,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Smart simulated transcript fallback
+    // Smart simulated speaker separation
+    const sampleSpeakers = ["Speaker 1", "Speaker 2", "Speaker 1", "Speaker 3"];
     const sampleTranscripts = [
       "Hello, I am speaking to you right now.",
       "The pharmacy is located on the second floor on your right.",
@@ -65,10 +72,11 @@ export async function POST(req: NextRequest) {
       "Could you please repeat what you just said?",
       "Take care and have a wonderful day.",
     ];
-    const randomTranscript = sampleTranscripts[Math.floor(Math.random() * sampleTranscripts.length)];
+    const randomIndex = Math.floor(Math.random() * sampleTranscripts.length);
 
     const res = NextResponse.json({
-      transcript: randomTranscript,
+      transcript: sampleTranscripts[randomIndex],
+      speaker: sampleSpeakers[randomIndex % sampleSpeakers.length],
       confidence: 0.88,
       source: "server-stt-fallback",
     });

@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useAccessibility } from "@/context/AccessibilityContext";
 import { useOffline } from "@/context/OfflineContext";
@@ -88,8 +89,23 @@ export const TopAppBar: React.FC = () => {
         </button>
       </div>
 
-      {/* Right side controls: Install Button (if available) + High Contrast Toggle */}
-      <div className="flex items-center gap-1 shrink-0">
+      {/* Right side controls: SOS Trigger + Install + High Contrast */}
+      <div className="flex items-center gap-1.5 shrink-0">
+        {pathname !== "/emergency" && (
+          <Link
+            href="/emergency"
+            onClick={() => speak("Opening Emergency Assistance")}
+            className="h-8 px-2.5 bg-red-600 hover:bg-red-700 text-white rounded-full font-black text-xs flex items-center gap-1 shadow cursor-pointer active:scale-95 transition-transform"
+            aria-label="Trigger Emergency Assistance"
+            title="Emergency SOS"
+          >
+            <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>
+              sos
+            </span>
+            <span>SOS</span>
+          </Link>
+        )}
+
         {isInstallable && !isInstalled && (
           <button
             onClick={handleInstallClick}

@@ -5,6 +5,7 @@ import { useAccessibility } from "@/context/AccessibilityContext";
 import { Soundwave } from "@/components/Soundwave";
 import { useToast } from "@/context/ToastContext";
 import { realtimeCaptions, CaptionMessage } from "@/lib/realtimeCaptions";
+import { getPredictiveSuggestions } from "@/lib/predictivePhrases";
 
 export default function ConversationModePage() {
   const { speak, userProfile } = useAccessibility();
@@ -15,6 +16,7 @@ export default function ConversationModePage() {
   const [isListeningThem, setIsListeningThem] = useState<boolean>(true);
   const [isSyncActive, setIsSyncActive] = useState<boolean>(false);
   const [roomCode, setRoomCode] = useState<string>("");
+  const [predictions, setPredictions] = useState<string[]>([]);
   
   const scrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -30,6 +32,11 @@ export default function ConversationModePage() {
     "Sure! Let me grab that for you.",
   ];
   const [mockIndex, setMockIndex] = useState(0);
+
+  // Update predictive suggestions on typing
+  useEffect(() => {
+    setPredictions(getPredictiveSuggestions(youText));
+  }, [youText]);
 
   // Subscribe to Realtime Sync from other paired screen
   useEffect(() => {
@@ -132,12 +139,10 @@ export default function ConversationModePage() {
       if (isSyncActive) {
         realtimeCaptions.broadcastCaption({ text: phrase, speaker: "them" });
       }
-      setMockIndex((prev) => (prev + 1) % mockPhrases.length);
+      setMockIndex((prev) => (prev + 1) % mockThemPhrases.length);
       runMockListening();
     }, delay);
   };
-
-  const mockPhrases = mockThemPhrases;
 
   const handleSpeakYou = (text: string) => {
     if (!text.trim()) return;
@@ -147,6 +152,20 @@ export default function ConversationModePage() {
       realtimeCaptions.broadcastCaption({ text, speaker: "you" });
     }
     setYouText("");
+  };
+
+  const handleSelectPrediction = (suggestion: string) => {
+    if (!youText.trim()) {
+      setYouText(suggestion);
+    } else if (youText.endsWith(" ")) {
+      setYouText(youText + suggestion);
+    } else {
+      const words = youText.split(/\s+/);
+      words.pop();
+      const prefix = words.length > 0 ? words.join(" ") + " " : "";
+      setYouText(prefix + suggestion);
+    }
+    speak(suggestion);
   };
 
   const highlightKeyPhrases = (text: string) => {
@@ -174,7 +193,7 @@ export default function ConversationModePage() {
   return (
     <div className="flex-grow flex flex-col h-[calc(100vh-140px)] w-full max-w-2xl mx-auto overflow-hidden border-x border-outline-variant bg-background">
       
-      {/* Top Half: THEM (Facing other person) */}
+      {/* Top Half: THEM */}
       <div className="flex-1 bg-zinc-950 text-white p-6 flex flex-col justify-between overflow-hidden relative">
         <div className="flex justify-between items-center border-b border-white/10 pb-3">
           <div className="flex items-center gap-2">
@@ -252,20 +271,35 @@ export default function ConversationModePage() {
         </div>
 
         {/* Quick presets board */}
-        <div className="py-4 flex gap-3 overflow-x-auto scrollbar-none snap-x snap-mandatory">
+        <div className="py-2 flex gap-3 overflow-x-auto scrollbar-none snap-x snap-mandatory">
           {presets.map((preset, index) => (
             <button
               key={index}
               onClick={() => handleSpeakYou(preset)}
-              className="h-14 px-5 shrink-0 bg-surface-container border-2 border-outline-variant hover:border-primary rounded-xl text-lg font-bold hover:bg-surface-container-high cursor-pointer snap-start"
+              className="h-12 px-4 shrink-0 bg-surface-container border-2 border-outline-variant hover:border-primary rounded-xl text-base font-bold hover:bg-surface-container-high cursor-pointer snap-start"
             >
               {preset}
             </button>
           ))}
         </div>
 
+        {/* Predictive Suggestions Chips */}
+        {predictions.length > 0 && (
+          <div className="flex items-center gap-1.5 overflow-x-auto py-1 scrollbar-none">
+            {predictions.slice(0, 4).map((p, idx) => (
+              <button
+                key={idx}
+                onClick={() => handleSelectPrediction(p)}
+                className="shrink-0 px-3 py-1 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 rounded-lg text-xs font-extrabold cursor-pointer active:scale-95 transition-transform"
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Input box and Speak trigger */}
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-2">
           <div className="flex gap-3">
             <input
               type="text"

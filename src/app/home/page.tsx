@@ -68,6 +68,38 @@ export default function HomePage() {
       bgColor: "bg-pink-500/10 hover:bg-pink-500/15 border-pink-500/20",
       iconColor: "text-pink-600 dark:text-pink-400",
     },
+    {
+      title: "Currency & Products",
+      desc: "Banknote denomination reader & price tally",
+      href: "/home/currency",
+      icon: "payments",
+      bgColor: "bg-cyan-500/10 hover:bg-cyan-500/15 border-cyan-500/20",
+      iconColor: "text-cyan-600 dark:text-cyan-400",
+    },
+    {
+      title: "Indoor Wayfinding",
+      desc: "Step-by-step room and corridor navigation",
+      href: "/home/indoor-nav",
+      icon: "near_me",
+      bgColor: "bg-lime-500/10 hover:bg-lime-500/15 border-lime-500/20",
+      iconColor: "text-lime-600 dark:text-lime-400",
+    },
+    {
+      title: "Wearable Bridge",
+      desc: "Smartwatch companion & tactile haptics",
+      href: "/home/wearable",
+      icon: "watch",
+      bgColor: "bg-violet-500/10 hover:bg-violet-500/15 border-violet-500/20",
+      iconColor: "text-violet-600 dark:text-violet-400",
+    },
+    {
+      title: "Emergency SOS",
+      desc: "1-tap GPS broadcast, siren & 911 dispatch",
+      href: "/emergency",
+      icon: "sos",
+      bgColor: "bg-red-500/10 hover:bg-red-500/15 border-red-500/20",
+      iconColor: "text-red-600 dark:text-red-400",
+    },
   ];
 
   const triggerHazardAlert = () => {

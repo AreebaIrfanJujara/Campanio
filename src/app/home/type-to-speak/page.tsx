@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { useAccessibility } from "@/context/AccessibilityContext";
 import { Soundwave } from "@/components/Soundwave";
 import { useToast } from "@/context/ToastContext";
+import { getPredictiveSuggestions } from "@/lib/predictivePhrases";
 
 interface Preset {
   text: string;
@@ -19,6 +20,13 @@ export default function TypeToSpeakPage() {
   const [newPhraseText, setNewPhraseText] = useState<string>("");
   const [customPhrases, setCustomPhrases] = useState<Preset[]>([]);
   const [isAdding, setIsAdding] = useState<boolean>(false);
+  const [predictions, setPredictions] = useState<string[]>([]);
+
+  // Update predictive suggestions on typing
+  useEffect(() => {
+    const sugg = getPredictiveSuggestions(customText);
+    setPredictions(sugg);
+  }, [customText]);
 
   // Load custom phrases from localStorage on mount
   useEffect(() => {
@@ -49,6 +57,20 @@ export default function TypeToSpeakPage() {
     speak("Text cleared", true);
   };
 
+  const handleSelectPrediction = (suggestion: string) => {
+    if (!customText.trim()) {
+      setCustomText(suggestion);
+    } else if (customText.endsWith(" ")) {
+      setCustomText(customText + suggestion);
+    } else {
+      const words = customText.split(/\s+/);
+      words.pop();
+      const prefix = words.length > 0 ? words.join(" ") + " " : "";
+      setCustomText(prefix + suggestion);
+    }
+    speak(suggestion);
+  };
+
   const handleAddCustomPhrase = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPhraseLabel || !newPhraseText) {
@@ -70,7 +92,7 @@ export default function TypeToSpeakPage() {
   };
 
   const handleDeleteCustomPhrase = (index: number, e: React.MouseEvent) => {
-    e.stopPropagation(); // prevent triggering the speak action
+    e.stopPropagation();
     const updated = customPhrases.filter((_, idx) => idx !== index);
     setCustomPhrases(updated);
     if (typeof window !== "undefined") {
@@ -98,45 +120,69 @@ export default function TypeToSpeakPage() {
         { text: "I need directions.", label: "Need directions" },
         { text: "How far is it?", label: "How far?" },
       ],
-      borderClass: "border-outline-variant",
+      borderClass: "border-secondary",
     },
     {
-      title: "Emergency (Urgencies)",
+      title: "Assistance & Medical",
       presets: [
-        { text: "Please call for help.", label: "Call for help" },
-        { text: "I need a doctor.", label: "Need a doctor" },
-        { text: "I need assistance urgently.", label: "Urgent help" },
-        { text: "Please stay with me.", label: "Stay with me" },
+        { text: "Please call for assistance.", label: "Call for help" },
+        { text: "I cannot see clearly.", label: "Low vision alert" },
+        { text: "Please write it down.", label: "Write down" },
+        { text: "I need my medication.", label: "Medication" },
       ],
-      borderClass: "border-red-500/30 text-red-600 dark:text-red-400 hover:border-red-600",
+      borderClass: "border-error",
     },
   ];
 
   return (
-    <div className="flex-grow flex flex-col px-margin-edge py-stack-lg gap-6 max-w-2xl mx-auto w-full">
+    <div className="flex-grow flex flex-col px-margin-edge py-stack-lg gap-6 max-w-2xl mx-auto w-full text-on-surface">
       {/* Title */}
       <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold text-on-surface">Speak For Me</h1>
-        <p className="text-lg text-on-surface-variant">
-          Type custom text or tap preset boards to have Companio speak aloud for you.
+        <h1 className="text-3xl font-bold font-display-ocr">Speak For Me</h1>
+        <p className="text-lg text-on-surface-variant leading-relaxed">
+          Type custom text or tap quick AAC presets to read aloud using natural speech synthesis.
         </p>
       </div>
 
-      {/* Input Text Box */}
+      {/* Main Text Input Area */}
       <div className="flex flex-col gap-2">
-        <label htmlFor="custom-speak-input" className="font-semibold text-lg text-on-surface">
-          Enter custom text to speak
-        </label>
+        <div className="flex justify-between items-center">
+          <label htmlFor="custom-speech-input" className="font-bold text-lg text-on-surface">
+            Type anything to speak
+          </label>
+          <span className="text-xs text-on-surface-variant font-bold">AAC Board</span>
+        </div>
+
         <textarea
-          id="custom-speak-input"
+          id="custom-speech-input"
           value={customText}
           onChange={(e) => setCustomText(e.target.value)}
-          className="w-full h-36 p-4 border-2 border-outline rounded-2xl bg-surface-container text-2xl font-bold font-display-ocr text-on-surface focus:border-primary focus:outline-none resize-none leading-relaxed"
-          placeholder="Type here..."
-          aria-label="Text to speech entry area"
+          placeholder="Type what you want to say out loud..."
+          rows={3}
+          className="w-full p-4 border-2 border-outline focus:border-primary focus:outline-none rounded-2xl text-xl font-bold bg-surface-container resize-none"
+          aria-label="Text to speak input area"
         />
 
-        {/* Speak indicators */}
+        {/* Predictive Suggestions Bar */}
+        {predictions.length > 0 && (
+          <div className="flex items-center gap-2 overflow-x-auto py-1 scrollbar-none">
+            <span className="text-xs font-bold text-primary shrink-0 flex items-center gap-1">
+              <span className="material-symbols-outlined text-sm">auto_awesome</span>
+              Predict:
+            </span>
+            {predictions.map((p, idx) => (
+              <button
+                key={idx}
+                onClick={() => handleSelectPrediction(p)}
+                className="shrink-0 px-3 py-1 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 rounded-xl text-sm font-extrabold cursor-pointer active:scale-95 transition-transform"
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Speaking animation indicator */}
         {isSpeaking && (
           <div className="flex items-center gap-3 bg-teal-500/10 text-teal-700 dark:text-teal-400 border border-teal-500/30 rounded-xl px-4 py-2 mt-2 w-max animate-pulse">
             <span className="w-2.5 h-2.5 rounded-full bg-teal-500 animate-ping"></span>
@@ -145,7 +191,7 @@ export default function TypeToSpeakPage() {
           </div>
         )}
 
-        <div className="flex gap-4 mt-3">
+        <div className="flex gap-4 mt-2">
           <button
             onClick={() => handleSpeak(customText)}
             className="flex-grow h-[56px] bg-primary hover:bg-primary-container text-white font-bold text-lg rounded-xl flex items-center justify-center gap-2 cursor-pointer shadow active:scale-95 transition-all"
@@ -225,62 +271,68 @@ export default function TypeToSpeakPage() {
                   id="phrase-label"
                   value={newPhraseLabel}
                   onChange={(e) => setNewPhraseLabel(e.target.value)}
-                  className="h-12 px-3 border border-outline rounded-xl bg-surface focus:outline-primary text-base text-on-surface"
-                  placeholder="e.g. Toilet"
+                  placeholder="e.g. Call Taxi"
+                  className="w-full h-12 px-3 border border-outline rounded-xl bg-surface focus:outline-primary text-base text-on-surface"
                   required
                 />
               </div>
+
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="phrase-text" className="font-semibold text-base text-on-surface">
-                  Spoken Phrase Text
+                  Spoken Sentence
                 </label>
                 <input
                   type="text"
                   id="phrase-text"
                   value={newPhraseText}
                   onChange={(e) => setNewPhraseText(e.target.value)}
-                  className="h-12 px-3 border border-outline rounded-xl bg-surface focus:outline-primary text-base text-on-surface"
-                  placeholder="e.g. Excuse me, where is the toilet?"
+                  placeholder="e.g. Please call a wheelchair-accessible taxi for me."
+                  className="w-full h-12 px-3 border border-outline rounded-xl bg-surface focus:outline-primary text-base text-on-surface"
                   required
                 />
               </div>
+
               <button
                 type="submit"
-                className="h-12 bg-primary hover:bg-primary-container text-white font-bold rounded-xl cursor-pointer"
+                className="h-12 bg-primary hover:bg-primary-container text-white font-bold rounded-xl cursor-pointer shadow active:scale-95 transition-transform"
               >
-                Save to Board
+                Save Custom Phrase
               </button>
             </form>
           )}
 
           {customPhrases.length === 0 ? (
-            <p className="text-zinc-500 text-base leading-relaxed py-2">
-              No custom phrases added yet. Click "Add Phrase" to add your own.
-            </p>
+            <div className="p-5 border-2 border-dashed border-outline-variant rounded-xl text-center text-on-surface-variant font-medium">
+              No custom phrases saved yet. Tap &apos;Add Phrase&apos; above to save phrases you use frequently.
+            </div>
           ) : (
             <div className="grid grid-cols-2 gap-4">
-              {customPhrases.map((preset, index) => (
-                <button
+              {customPhrases.map((phrase, index) => (
+                <div
                   key={index}
-                  onClick={() => handleSpeak(preset.text)}
-                  className="h-[64px] pl-4 pr-2 bg-surface border-2 border-primary rounded-xl text-lg font-bold text-on-surface hover:bg-surface-container-low transition-all cursor-pointer flex items-center justify-between text-left"
+                  onClick={() => handleSpeak(phrase.text)}
+                  className="h-[64px] px-4 bg-surface-container border-2 border-primary/40 rounded-xl text-lg font-bold hover:bg-surface-container-high transition-all cursor-pointer flex items-center justify-between text-left group"
                   style={{
                     minHeight: userProfile.preset === "motor" ? "76px" : "64px",
                   }}
-                  aria-label={`Custom phrase: ${preset.text}`}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Custom phrase: ${phrase.text}`}
                 >
-                  <span className="truncate max-w-[70%]">{preset.label}</span>
+                  <span className="truncate pr-2">{phrase.label}</span>
                   <div className="flex items-center gap-1">
-                    <span className="material-symbols-outlined text-primary text-xl">play_circle</span>
+                    <span className="material-symbols-outlined text-xl opacity-80 group-hover:scale-110 transition-transform">
+                      play_circle
+                    </span>
                     <button
                       onClick={(e) => handleDeleteCustomPhrase(index, e)}
-                      className="p-1 text-red-500 hover:bg-red-500/10 rounded-full cursor-pointer"
-                      aria-label={`Delete custom phrase ${preset.label}`}
+                      className="w-8 h-8 rounded-lg flex items-center justify-center text-red-500 hover:bg-red-500/10 cursor-pointer"
+                      aria-label={`Delete custom phrase ${phrase.label}`}
                     >
-                      <span className="material-symbols-outlined text-lg">delete</span>
+                      <span className="material-symbols-outlined text-base">delete</span>
                     </button>
                   </div>
-                </button>
+                </div>
               ))}
             </div>
           )}

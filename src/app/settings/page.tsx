@@ -273,6 +273,41 @@ export default function SettingsPage() {
           </div>
         </section>
 
+        {/* Emergency Assistance & SOS Section */}
+        <section className="bg-surface-container rounded-3xl p-6 border-2 border-red-500/30 flex flex-col gap-4 shadow-sm">
+          <div className="flex items-center justify-between border-b border-outline-variant pb-2">
+            <h2 className="text-sm font-black uppercase tracking-wider text-red-600 dark:text-red-400 flex items-center gap-1.5">
+              <span className="material-symbols-outlined text-lg">sos</span>
+              <span>Emergency SOS Contacts</span>
+            </h2>
+            <Link href="/emergency" className="text-xs text-red-500 font-bold hover:underline">
+              Open SOS Screen
+            </Link>
+          </div>
+
+          <div className="flex flex-col gap-3 py-1">
+            <div className="flex items-center justify-between p-3 bg-surface rounded-xl border border-outline-variant">
+              <div>
+                <strong className="block text-sm text-on-surface">Primary Caregiver</strong>
+                <span className="text-xs text-on-surface-variant">+1 (555) 019-2834</span>
+              </div>
+              <span className="text-xs bg-emerald-500/10 text-emerald-600 font-bold px-2 py-0.5 rounded-full border border-emerald-500/20">
+                Active
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between p-3 bg-surface rounded-xl border border-outline-variant">
+              <div>
+                <strong className="block text-sm text-on-surface">Emergency Dispatch</strong>
+                <span className="text-xs text-on-surface-variant">911 / Local Emergency</span>
+              </div>
+              <span className="text-xs bg-red-500/10 text-red-600 font-bold px-2 py-0.5 rounded-full border border-red-500/20">
+                Emergency
+              </span>
+            </div>
+          </div>
+        </section>
+
         {/* Visual Settings Section */}
         <section className="bg-surface-container rounded-3xl p-6 border border-outline-variant flex flex-col gap-4">
           <h2 className="text-sm font-black uppercase tracking-wider text-on-surface-variant border-b border-outline-variant pb-2">

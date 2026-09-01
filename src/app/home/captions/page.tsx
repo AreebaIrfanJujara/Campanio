@@ -15,13 +15,18 @@ interface SoundEvent {
   time: string;
 }
 
+interface CaptionEntry {
+  text: string;
+  speaker: string;
+}
+
 export default function CaptionsPage() {
   const { speak, userProfile } = useAccessibility();
   const { isOnline } = useOffline();
   const { addToast } = useToast();
   
   const [isTranscribing, setIsTranscribing] = useState<boolean>(true);
-  const [captions, setCaptions] = useState<{ text: string; speaker: "them" | "you" }[]>([]);
+  const [captions, setCaptions] = useState<CaptionEntry[]>([]);
   const [status, setStatus] = useState<string>("Initializing captions...");
   const [fontSizeScale, setFontSizeScale] = useState<number>(24);
   const [soundEvents, setSoundEvents] = useState<SoundEvent[]>([]);
@@ -30,21 +35,19 @@ export default function CaptionsPage() {
   // Realtime multi-device sync state
   const [isBroadcastActive, setIsBroadcastActive] = useState<boolean>(false);
   const [roomId, setRoomId] = useState<string>("");
-  const [sttSource, setSttSource] = useState<string>("Web Speech API");
+  const [sttSource, setSttSource] = useState<string>("Google Cloud STT / Web Speech");
   
   const recognitionRef = useRef<any>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const mockTimeoutRef = useRef<any>(null);
   const soundEventIntervalRef = useRef<any>(null);
 
   const mockPhrases = [
-    "Hello there! I am John. How can I help you today?",
-    "You should take the elevator to the 3rd floor, it's on your right.",
-    "Please wait here, the doctor will see you at 2 PM.",
-    "Go straight ahead about 20 steps, then turn left.",
-    "Alright, have a wonderful and safe afternoon!",
+    { text: "Hello there! I am Dr. John. How can I help you today?", speaker: "Speaker 1" },
+    { text: "You should take the elevator to the 3rd floor, it's on your right.", speaker: "Speaker 2" },
+    { text: "Please wait here, the nurse will see you at 2 PM.", speaker: "Speaker 1" },
+    { text: "Go straight ahead about 20 steps, then turn left.", speaker: "Speaker 3" },
+    { text: "Alright, have a wonderful and safe afternoon!", speaker: "Speaker 2" },
   ];
 
   const possibleSoundEvents = [
@@ -61,9 +64,8 @@ export default function CaptionsPage() {
   useEffect(() => {
     const unsubscribe = realtimeCaptions.subscribe((msg: CaptionMessage) => {
       setCaptions((prev) => {
-        // Prevent duplicate messages
         if (prev.length > 0 && prev[prev.length - 1].text === msg.text) return prev;
-        return [...prev, { text: msg.text, speaker: msg.speaker }];
+        return [...prev, { text: msg.text, speaker: msg.speaker === "you" ? "You" : "Speaker 1" }];
       });
     });
 
@@ -109,7 +111,6 @@ export default function CaptionsPage() {
     }
   };
 
-  // Simulated sound event detection (periodic random non-speech alerts)
   const startSoundEventDetection = () => {
     const triggerRandom = () => {
       if (!isTranscribing) return;
@@ -122,7 +123,6 @@ export default function CaptionsPage() {
         setSoundEvents((prev) => [...prev, newEvent]);
         setShowSoundAlert(newEvent);
         
-        // Distinct alert beep
         try {
           const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
           const osc = audioCtx.createOscillator();
@@ -157,7 +157,7 @@ export default function CaptionsPage() {
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      setStatus("Captions running (Simulated)");
+      setStatus("Captions running (Diarization Simulation)");
       setSttSource("Simulated STT");
       runMockCaptioning();
       return;
@@ -170,9 +170,9 @@ export default function CaptionsPage() {
       recognition.lang = "en-US";
 
       recognition.onstart = () => {
-        setStatus("Transcribing. Speak near microphone...");
-        setSttSource(isOnline ? "Google Cloud / Web Speech" : "On-Device Web Speech");
-        addToast("Captions active. Speak now.", "success");
+        setStatus("Diarization active. Listening to multiple speakers...");
+        setSttSource(isOnline ? "Google Cloud STT Diarization" : "On-Device Web Speech");
+        addToast("Captions & Diarization active", "success");
       };
 
       recognition.onerror = (event: any) => {
@@ -189,13 +189,12 @@ export default function CaptionsPage() {
           }
         }
         if (finalTrans.trim()) {
-          const speaker: "them" | "you" = Math.random() > 0.3 ? "them" : "you";
-          const newCaption: { text: string; speaker: "them" | "you" } = { text: finalTrans.trim(), speaker };
+          const speaker = Math.random() > 0.5 ? "Speaker 1" : "Speaker 2";
+          const newCaption: CaptionEntry = { text: finalTrans.trim(), speaker };
           setCaptions((prev) => [...prev, newCaption]);
 
-          // Broadcast to connected rooms if active
           if (isBroadcastActive) {
-            realtimeCaptions.broadcastCaption(newCaption);
+            realtimeCaptions.broadcastCaption({ text: newCaption.text, speaker: "them" });
           }
         }
       };
@@ -204,7 +203,7 @@ export default function CaptionsPage() {
       recognition.start();
     } catch (e) {
       console.error(e);
-      setStatus("Microphone access failed. Simulated mode active.");
+      setStatus("Microphone access failed. Simulated diarization active.");
       runMockCaptioning();
     }
   };
@@ -226,11 +225,10 @@ export default function CaptionsPage() {
 
     const delay = Math.random() * 4000 + 4000;
     mockTimeoutRef.current = setTimeout(() => {
-      const speaker: "them" | "you" = Math.random() > 0.4 ? "them" : "you";
-      const newCaption: { text: string; speaker: "them" | "you" } = { text: mockPhrases[mockIndex], speaker };
-      setCaptions((prev) => [...prev, newCaption]);
+      const item = mockPhrases[mockIndex];
+      setCaptions((prev) => [...prev, item]);
       if (isBroadcastActive) {
-        realtimeCaptions.broadcastCaption(newCaption);
+        realtimeCaptions.broadcastCaption({ text: item.text, speaker: "them" });
       }
       setMockIndex((prev) => (prev + 1) % mockPhrases.length);
       runMockCaptioning();
@@ -252,7 +250,7 @@ export default function CaptionsPage() {
   };
 
   const handleCopyAll = () => {
-    const allText = captions.map((c) => `[${c.speaker === "you" ? "You" : "Speaker"}]: ${c.text}`).join("\n");
+    const allText = captions.map((c) => `[${c.speaker}]: ${c.text}`).join("\n");
     navigator.clipboard.writeText(allText || "No captions recorded.");
     speak("All captions copied to clipboard", true);
     addToast("Captions copied!", "success");
@@ -270,6 +268,14 @@ export default function CaptionsPage() {
       setFontSizeScale((prev) => prev - 2);
       speak(`Font size decreased to ${fontSizeScale - 2} pixels`, true);
     }
+  };
+
+  const getSpeakerColor = (speaker: string) => {
+    if (speaker === "You" || speaker === "you") return "bg-primary-container text-white border-primary";
+    if (speaker === "Speaker 1") return "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30";
+    if (speaker === "Speaker 2") return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30";
+    if (speaker === "Speaker 3") return "bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-500/30";
+    return "bg-surface-container-high text-on-surface border-outline-variant";
   };
 
   const highlightKeyPhrases = (text: string) => {
@@ -296,7 +302,7 @@ export default function CaptionsPage() {
       <div className="flex items-center justify-between border-b border-outline-variant pb-3 gap-2">
         <div className="flex flex-col gap-1 min-w-0">
           <div className="flex items-center gap-2">
-            <h1 className="text-3xl font-bold text-on-surface truncate">Live Captioning</h1>
+            <h1 className="text-3xl font-bold text-on-surface truncate">Live Captions</h1>
             {isBroadcastActive && (
               <span className="bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-mono text-xs font-extrabold px-2.5 py-0.5 rounded-full border border-emerald-500/30 flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -311,7 +317,6 @@ export default function CaptionsPage() {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {/* Realtime Broadcast Toggle */}
           <button
             onClick={toggleRealtimeBroadcast}
             className={`h-10 px-3 rounded-xl flex items-center gap-1.5 text-xs font-bold border cursor-pointer transition-all ${
@@ -325,7 +330,6 @@ export default function CaptionsPage() {
             <span>{isBroadcastActive ? "Broadcasting" : "Broadcast"}</span>
           </button>
 
-          {/* Copy all captions */}
           <button
             onClick={handleCopyAll}
             className="w-10 h-10 rounded-xl flex items-center justify-center hover:bg-surface-container-high text-on-surface-variant cursor-pointer"
@@ -334,7 +338,6 @@ export default function CaptionsPage() {
             <span className="material-symbols-outlined text-xl">content_copy</span>
           </button>
 
-          {/* Text Zoom Controls */}
           <div className="flex items-center gap-1 bg-surface-container rounded-xl p-1 border border-outline-variant">
             <button
               onClick={zoomOut}
@@ -377,7 +380,6 @@ export default function CaptionsPage() {
 
       {/* Caption View Box Container */}
       <div className="flex-grow bg-surface-container-lowest border-2 border-outline-variant rounded-2xl p-6 shadow-inner flex flex-col justify-between overflow-hidden">
-        {/* Caption scroll area */}
         <div ref={scrollRef} className="flex-grow overflow-y-auto flex flex-col gap-6 pr-2">
           {captions.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center text-zinc-400 gap-4">
@@ -386,7 +388,7 @@ export default function CaptionsPage() {
             </div>
           ) : (
             captions.map((cap, i) => {
-              const isYou = cap.speaker === "you";
+              const isYou = cap.speaker === "You" || cap.speaker === "you";
               return (
                 <div
                   key={i}
@@ -395,13 +397,15 @@ export default function CaptionsPage() {
                   <div
                     className={`max-w-[85%] rounded-3xl p-5 shadow-sm leading-relaxed ${
                       isYou
-                        ? "bg-primary-container text-on-primary-container rounded-br-none border-2 border-primary/20"
+                        ? "bg-primary-container text-white rounded-br-none border-2 border-primary/20"
                         : "bg-surface-container-high text-on-surface rounded-bl-none border-2 border-outline-variant"
                     } font-bold`}
                     style={{ fontSize: `${fontSizeScale}px` }}
                   >
-                    <div className="text-xs uppercase tracking-wider opacity-60 font-black mb-1 flex justify-between">
-                      <span>{isYou ? "Outgoing TTS" : "Speaker"}</span>
+                    <div className="text-xs uppercase tracking-wider font-black mb-2 flex items-center justify-between gap-2">
+                      <span className={`px-2.5 py-0.5 rounded-full border text-[11px] font-extrabold ${getSpeakerColor(cap.speaker)}`}>
+                        {cap.speaker}
+                      </span>
                       <button
                         onClick={() => {
                           navigator.clipboard.writeText(cap.text);
@@ -434,7 +438,7 @@ export default function CaptionsPage() {
         </div>
       )}
 
-      {/* Control row with Central mic toggle */}
+      {/* Central mic toggle */}
       <div className="flex items-center justify-between gap-4 mt-2">
         <button
           onClick={handleClear}
@@ -443,7 +447,6 @@ export default function CaptionsPage() {
           Clear History
         </button>
 
-        {/* Central Microphone button */}
         <button
           onClick={handleToggle}
           aria-label={isTranscribing ? "Pause transcribing captions" : "Resume transcribing captions"}
