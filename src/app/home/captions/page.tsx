@@ -38,10 +38,16 @@ export default function CaptionsPage() {
   const [roomId, setRoomId] = useState<string>("");
   const [sttSource, setSttSource] = useState<string>("Google Cloud STT / Web Speech");
   
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mockTimeoutRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const soundEventIntervalRef = useRef<any>(null);
+  const audioStreamRef = useRef<MediaStream | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   const mockPhrases = [
     { text: "Hello there! I am Dr. John. How can I help you today?", speaker: "Speaker 1" },
@@ -153,7 +159,33 @@ export default function CaptionsPage() {
     }
   };
 
-  const startTranscribing = () => {
+  const startTranscribing = async () => {
+    // Start microphone stream & real MediaRecorder for server-side Cloud STT
+    try {
+      if (typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioStreamRef.current = stream;
+        
+        let mimeType = "audio/webm;codecs=opus";
+        if (typeof MediaRecorder !== "undefined") {
+          if (!MediaRecorder.isTypeSupported(mimeType)) {
+            mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
+          }
+          const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+          audioChunksRef.current = [];
+          recorder.ondataavailable = (event) => {
+            if (event.data && event.data.size > 0) {
+              audioChunksRef.current.push(event.data);
+            }
+          };
+          recorder.start(1000); // 1-second timeslices
+          mediaRecorderRef.current = recorder;
+        }
+      }
+    } catch (micErr) {
+      console.warn("MediaRecorder mic access warning:", micErr);
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
@@ -190,16 +222,32 @@ export default function CaptionsPage() {
           }
         }
         if (finalTrans.trim()) {
-          // When online, also enrich with Cloud STT speaker diarization
+          // When online, extract real recorded audio chunks and send to Cloud STT
           let speaker = Math.random() > 0.5 ? "Speaker 1" : "Speaker 2";
-          if (isOnline) {
+          if (isOnline && audioChunksRef.current.length > 0) {
             try {
-              const sttResult = await CompanioAPI.transcribeAudio(
-                btoa(finalTrans), // In production: base64 audio chunk from MediaRecorder
-                "en-US"
-              );
-              if (sttResult.speaker) speaker = sttResult.speaker;
-            } catch { /* fallback to local speaker assignment */ }
+              const recordedChunks = [...audioChunksRef.current];
+              audioChunksRef.current = []; // flush for next utterance
+              const audioBlob = new Blob(recordedChunks, {
+                type: mediaRecorderRef.current?.mimeType || "audio/webm",
+              });
+              
+              // Convert real audio blob to base64
+              const arrayBuffer = await audioBlob.arrayBuffer();
+              const bytes = new Uint8Array(arrayBuffer);
+              let binary = "";
+              for (let i = 0; i < bytes.byteLength; i++) {
+                binary += String.fromCharCode(bytes[i]);
+              }
+              const realAudioBase64 = btoa(binary);
+
+              if (realAudioBase64.length > 50) {
+                const sttResult = await CompanioAPI.transcribeAudio(realAudioBase64, "en-US");
+                if (sttResult.speaker) speaker = sttResult.speaker;
+              }
+            } catch (sttErr) {
+              console.warn("STT Diarization processing error:", sttErr);
+            }
           }
 
           const newCaption: CaptionEntry = { text: finalTrans.trim(), speaker };
@@ -222,10 +270,25 @@ export default function CaptionsPage() {
   };
 
   const stopTranscribing = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch {}
+      mediaRecorderRef.current = null;
+    }
+    if (audioStreamRef.current) {
+      try {
+        audioStreamRef.current.getTracks().forEach((track) => track.stop());
+      } catch {}
+      audioStreamRef.current = null;
+    }
+    audioChunksRef.current = [];
+
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
       } catch {}
+      recognitionRef.current = null;
     }
     if (mockTimeoutRef.current) {
       clearTimeout(mockTimeoutRef.current);

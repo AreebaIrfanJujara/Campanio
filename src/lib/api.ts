@@ -51,6 +51,15 @@ function isBrowserOffline(): boolean {
   return typeof navigator !== "undefined" && !navigator.onLine;
 }
 
+const GATEWAY_URL = process.env.NEXT_PUBLIC_GATEWAY_URL || "";
+
+function getEndpoint(path: string): string {
+  if (GATEWAY_URL) {
+    return `${GATEWAY_URL.replace(/\/$/, "")}${path}`;
+  }
+  return path;
+}
+
 export const CompanioAPI = {
   ocr: async (imageBase64: string): Promise<OCRResult> => {
     if (isBrowserOffline()) {
@@ -64,7 +73,7 @@ export const CompanioAPI = {
     }
 
     try {
-      const res = await fetch("/api/vision/ocr", {
+      const res = await fetch(getEndpoint("/api/vision/ocr"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ imageBase64 }),
@@ -97,7 +106,7 @@ export const CompanioAPI = {
     }
 
     try {
-      const res = await fetch("/api/vision/describe", {
+      const res = await fetch(getEndpoint("/api/vision/describe"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ imageBase64 }),
@@ -129,7 +138,7 @@ export const CompanioAPI = {
     }
 
     try {
-      const res = await fetch("/api/stt/transcribe", {
+      const res = await fetch(getEndpoint("/api/stt/transcribe"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ audioBase64, languageCode }),
@@ -157,7 +166,7 @@ export const CompanioAPI = {
     }
 
     try {
-      const res = await fetch("/api/tts/speak", {
+      const res = await fetch(getEndpoint("/api/tts/speak"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text, voice, languageCode }),
@@ -188,7 +197,7 @@ export const CompanioAPI = {
     }
 
     try {
-      const res = await fetch("/api/translate", {
+      const res = await fetch(getEndpoint("/api/translate"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text, targetLanguage, sourceLanguage }),
@@ -219,7 +228,7 @@ export const CompanioAPI = {
     }
 
     try {
-      const res = await fetch("/api/assistant", {
+      const res = await fetch(getEndpoint("/api/assistant"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message, context, history }),

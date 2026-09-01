@@ -40,7 +40,7 @@ export default function OfflinePage() {
         <div className="flex flex-col gap-1">
           <h1 className="text-3xl font-black font-display-ocr">You Are Offline</h1>
           <p className="text-base text-on-surface-variant max-w-md">
-            Companio is built offline-first. Your local speech synthesizer, emergency phraseboards, live captioning, and local translations remain completely active.
+            Companio is built "offline-first" platform. Your local speech synthesizer, emergency phraseboards, live captioning, and local translations remain completely active.
           </p>
         </div>
 
