@@ -362,7 +362,7 @@ export function translateOffline(
 
   // 3. Word-by-word token replacement for simple sentences
   const words = cleanText.split(/\s+/);
-  let translatedWords: string[] = [];
+  const translatedWords: string[] = [];
   let foundAnyWord = false;
 
   for (const word of words) {

@@ -30,6 +30,7 @@ export interface STTResult {
   transcript: string;
   confidence: number;
   source: string;
+  speaker?: string;
   isOffline?: boolean;
 }
 

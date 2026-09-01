@@ -5,6 +5,7 @@ import { useAccessibility } from "@/context/AccessibilityContext";
 import { CompanioAPI } from "@/lib/api";
 import { useToast } from "@/context/ToastContext";
 import { useActivity } from "@/context/ActivityContext";
+import { wearableBridge } from "@/lib/wearableBridge";
 
 interface DetectedObject {
   label: string;
@@ -98,7 +99,9 @@ export default function SceneDescriptionPage() {
   const playHazardBeep = () => {
     if (typeof window !== "undefined") {
       try {
-        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const AudioCtx = window.AudioContext || (window as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (!AudioCtx) return;
+        const audioCtx = new AudioCtx();
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.type = "square";
@@ -108,8 +111,10 @@ export default function SceneDescriptionPage() {
         gain.connect(audioCtx.destination);
         osc.start();
         osc.stop(audioCtx.currentTime + 0.3);
-      } catch (e) { /* ignore */ }
+      } catch { /* ignore */ }
     }
+    // Also trigger haptic on wearable device
+    wearableBridge.triggerHaptic("hazard");
   };
 
   const handleDescribe = async () => {

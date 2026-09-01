@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useAccessibility } from "@/context/AccessibilityContext";
 import { wearableBridge } from "@/lib/wearableBridge";
 import { useToast } from "@/context/ToastContext";
@@ -11,6 +11,11 @@ interface EmergencyContact {
   relation: string;
 }
 
+const EMERGENCY_CONTACTS: EmergencyContact[] = [
+  { name: "Emergency Caregiver (Mom)", phone: "+15550192834", relation: "Primary" },
+  { name: "Support Services", phone: "911", relation: "Dispatch" },
+];
+
 export default function EmergencyPage() {
   const { speak } = useAccessibility();
   const { addToast } = useToast();
@@ -19,19 +24,37 @@ export default function EmergencyPage() {
   const [locating, setLocating] = useState(true);
   const [sirenActive, setSirenActive] = useState(false);
   const [strobeActive, setStrobeActive] = useState(false);
-  const [contacts, setContacts] = useState<EmergencyContact[]>([
-    { name: "Emergency Caregiver (Mom)", phone: "+15550192834", relation: "Primary" },
-    { name: "Support Services", phone: "911", relation: "Dispatch" },
-  ]);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const oscRef = useRef<OscillatorNode | null>(null);
+
+  // stopSiren is declared before useEffect to avoid hoisting issues
+  const stopSiren = useCallback(() => {
+    if (oscRef.current) {
+      try {
+        oscRef.current.stop();
+        oscRef.current.disconnect();
+      } catch { /* already stopped */ }
+      oscRef.current = null;
+    }
+    if (audioCtxRef.current) {
+      try {
+        audioCtxRef.current.close();
+      } catch { /* already closed */ }
+      audioCtxRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     speak("Emergency Assistance Center opened. Determining your current GPS coordinates.", true);
     wearableBridge.triggerHaptic("sos");
 
-    // Retrieve GPS position
+    const fallbackLocation = {
+      lat: 37.7749,
+      lng: -122.4194,
+      address: "Main Street Medical Center, 2nd Floor, Room 204",
+    };
+
     if (typeof navigator !== "undefined" && "geolocation" in navigator) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
@@ -44,55 +67,35 @@ export default function EmergencyPage() {
         },
         (err) => {
           console.warn(err);
-          // Fallback simulation location
-          setLocation({
-            lat: 37.7749,
-            lng: -122.4194,
-            address: "Main Street Medical Center, 2nd Floor, Room 204",
-          });
+          setLocation(fallbackLocation);
           setLocating(false);
         },
         { enableHighAccuracy: true, timeout: 8000 }
       );
     } else {
-      setLocation({
-        lat: 37.7749,
-        lng: -122.4194,
-        address: "Main Street Medical Center, 2nd Floor, Room 204",
+      // Use a microtask to avoid synchronous setState inside effect
+      Promise.resolve().then(() => {
+        setLocation(fallbackLocation);
+        setLocating(false);
       });
-      setLocating(false);
     }
 
     return () => {
       stopSiren();
     };
-  }, []);
+  }, [speak, stopSiren]);
 
-  const toggleSiren = () => {
-    if (sirenActive) {
-      stopSiren();
-      setSirenActive(false);
-      setStrobeActive(false);
-      speak("Siren and visual beacon stopped.", true);
-    } else {
-      startSiren();
-      setSirenActive(true);
-      setStrobeActive(true);
-      wearableBridge.triggerHaptic("sos");
-      speak("High-decibel emergency siren activated.", true);
-    }
-  };
-
-  const startSiren = () => {
+  const startSiren = useCallback(() => {
     try {
-      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const AudioCtx = window.AudioContext || (window as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
 
       osc.type = "sawtooth";
       osc.frequency.setValueAtTime(800, ctx.currentTime);
 
-      // Warbling siren frequency
       const now = ctx.currentTime;
       for (let i = 0; i < 20; i++) {
         osc.frequency.linearRampToValueAtTime(1400, now + i * 0.5 + 0.25);
@@ -109,21 +112,20 @@ export default function EmergencyPage() {
     } catch (e) {
       console.warn("Audio Context failed", e);
     }
-  };
+  }, []);
 
-  const stopSiren = () => {
-    if (oscRef.current) {
-      try {
-        oscRef.current.stop();
-        oscRef.current.disconnect();
-      } catch {}
-      oscRef.current = null;
-    }
-    if (audioCtxRef.current) {
-      try {
-        audioCtxRef.current.close();
-      } catch {}
-      audioCtxRef.current = null;
+  const toggleSiren = () => {
+    if (sirenActive) {
+      stopSiren();
+      setSirenActive(false);
+      setStrobeActive(false);
+      speak("Siren and visual beacon stopped.", true);
+    } else {
+      startSiren();
+      setSirenActive(true);
+      setStrobeActive(true);
+      wearableBridge.triggerHaptic("sos");
+      speak("High-decibel emergency siren activated.", true);
     }
   };
 
@@ -160,7 +162,7 @@ export default function EmergencyPage() {
           </div>
           <div>
             <h1 className="text-2xl font-black font-display-ocr">Emergency Assistance</h1>
-            <p className="text-sm font-semibold opacity-90">Live GPS tracking & 1-tap dispatch</p>
+            <p className="text-sm font-semibold opacity-90">Live GPS tracking &amp; 1-tap dispatch</p>
           </div>
         </div>
 
@@ -199,7 +201,7 @@ export default function EmergencyPage() {
 
         <div className="grid grid-cols-2 gap-3 pt-2">
           <button
-            onClick={() => handleSendSMS(contacts[0].phone)}
+            onClick={() => handleSendSMS(EMERGENCY_CONTACTS[0].phone)}
             className="h-12 bg-primary text-white font-bold rounded-xl flex items-center justify-center gap-2 cursor-pointer active:scale-95 transition-all shadow"
           >
             <span className="material-symbols-outlined">sms</span>
@@ -218,7 +220,7 @@ export default function EmergencyPage() {
       {/* Siren & Strobe Controls */}
       <section className="bg-surface-container rounded-3xl p-6 border border-outline-variant flex items-center justify-between gap-4">
         <div>
-          <h2 className="text-lg font-bold text-on-surface">Auditory & Visual Alarm</h2>
+          <h2 className="text-lg font-bold text-on-surface">Auditory &amp; Visual Alarm</h2>
           <p className="text-sm text-on-surface-variant">Attract bystanders with a loud siren and strobe light</p>
         </div>
 
@@ -242,11 +244,11 @@ export default function EmergencyPage() {
         </h2>
 
         <div className="flex flex-col gap-3">
-          {contacts.map((contact, idx) => (
+          {EMERGENCY_CONTACTS.map((contact, idx) => (
             <div key={idx} className="flex items-center justify-between p-4 bg-surface rounded-2xl border border-outline-variant">
               <div>
                 <strong className="block text-base text-on-surface">{contact.name}</strong>
-                <span className="text-xs text-on-surface-variant">{contact.phone} • {contact.relation}</span>
+                <span className="text-xs text-on-surface-variant">{contact.phone} &bull; {contact.relation}</span>
               </div>
               <div className="flex gap-2">
                 <a

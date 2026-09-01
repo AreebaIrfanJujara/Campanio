@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:all": "concurrently \"next dev\" \"node server/gateway.js\"",
+    "gateway": "node server/gateway.js",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useAccessibility } from "@/context/AccessibilityContext";
 import { Soundwave } from "@/components/Soundwave";
 import { useToast } from "@/context/ToastContext";
@@ -16,11 +16,11 @@ export default function ConversationModePage() {
   const [isListeningThem, setIsListeningThem] = useState<boolean>(true);
   const [isSyncActive, setIsSyncActive] = useState<boolean>(false);
   const [roomCode, setRoomCode] = useState<string>("");
-  const [predictions, setPredictions] = useState<string[]>([]);
   
   const scrollRef = useRef<HTMLDivElement>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
-  const mockTimeoutRef = useRef<any>(null);
+  const mockTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const presets = ["Yes", "No", "One moment, please.", "Thank you.", "I understand.", "Please repeat that."];
 
@@ -33,10 +33,8 @@ export default function ConversationModePage() {
   ];
   const [mockIndex, setMockIndex] = useState(0);
 
-  // Update predictive suggestions on typing
-  useEffect(() => {
-    setPredictions(getPredictiveSuggestions(youText));
-  }, [youText]);
+  // Derive predictive suggestions without useEffect — no setState in effect needed
+  const predictions = useMemo(() => getPredictiveSuggestions(youText), [youText]);
 
   // Subscribe to Realtime Sync from other paired screen
   useEffect(() => {

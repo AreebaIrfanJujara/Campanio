@@ -7,6 +7,7 @@ import { Soundwave } from "@/components/Soundwave";
 import { useToast } from "@/context/ToastContext";
 import { realtimeCaptions, CaptionMessage } from "@/lib/realtimeCaptions";
 import { CompanioAPI } from "@/lib/api";
+import { wearableBridge } from "@/lib/wearableBridge";
 
 interface SoundEvent {
   id: number;
@@ -153,10 +154,10 @@ export default function CaptionsPage() {
   };
 
   const startTranscribing = () => {
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
-    if (!SpeechRecognition) {
+    if (!SR) {
       setStatus("Captions running (Diarization Simulation)");
       setSttSource("Simulated STT");
       runMockCaptioning();
@@ -164,7 +165,7 @@ export default function CaptionsPage() {
     }
 
     try {
-      const recognition = new SpeechRecognition();
+      const recognition = new SR();
       recognition.continuous = true;
       recognition.interimResults = true;
       recognition.lang = "en-US";
@@ -175,13 +176,13 @@ export default function CaptionsPage() {
         addToast("Captions & Diarization active", "success");
       };
 
-      recognition.onerror = (event: any) => {
+      recognition.onerror = (event: { error: string }) => {
         console.error("Speech recognition error:", event.error);
         setStatus(`Error: ${event.error}. Fallback mock activated.`);
         runMockCaptioning();
       };
 
-      recognition.onresult = (event: any) => {
+      recognition.onresult = async (event: { resultIndex: number; results: SpeechRecognitionResultList }) => {
         let finalTrans = "";
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           if (event.results[i].isFinal) {
@@ -189,9 +190,21 @@ export default function CaptionsPage() {
           }
         }
         if (finalTrans.trim()) {
-          const speaker = Math.random() > 0.5 ? "Speaker 1" : "Speaker 2";
+          // When online, also enrich with Cloud STT speaker diarization
+          let speaker = Math.random() > 0.5 ? "Speaker 1" : "Speaker 2";
+          if (isOnline) {
+            try {
+              const sttResult = await CompanioAPI.transcribeAudio(
+                btoa(finalTrans), // In production: base64 audio chunk from MediaRecorder
+                "en-US"
+              );
+              if (sttResult.speaker) speaker = sttResult.speaker;
+            } catch { /* fallback to local speaker assignment */ }
+          }
+
           const newCaption: CaptionEntry = { text: finalTrans.trim(), speaker };
           setCaptions((prev) => [...prev, newCaption]);
+          wearableBridge.triggerHaptic("caption_alert");
 
           if (isBroadcastActive) {
             realtimeCaptions.broadcastCaption({ text: newCaption.text, speaker: "them" });

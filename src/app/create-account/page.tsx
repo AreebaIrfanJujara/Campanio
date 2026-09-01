@@ -41,7 +41,7 @@ export default function CreateAccountPage() {
       speak(`Welcome, ${name}! Your account has been created. Let's customize your accessibility profile now.`, true);
       addToast("Account created!", "success");
       router.push("/profile-setup");
-    } catch (err: any) {
+    } catch (_err: unknown) {
       speak("Account creation failed.", true);
       addToast("Failed to create account", "error");
     } finally {
