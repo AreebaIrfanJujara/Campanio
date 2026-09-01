@@ -1,12 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { checkRateLimit, applyRateLimitHeaders, getCostCache, setCostCache } from '@/lib/rateLimit';
 
 export async function POST(req: NextRequest) {
+  const rateStatus = checkRateLimit(req);
+  if (!rateStatus.allowed) {
+    const res = NextResponse.json(
+      { error: "Rate limit exceeded. Please wait a moment." },
+      { status: 429 }
+    );
+    return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
+  }
+
   try {
     const { message, context = "", history = [] } = await req.json();
     const apiKey = process.env.GEMINI_API_KEY;
 
     if (!message) {
-      return NextResponse.json({ error: "Missing message in request body" }, { status: 400 });
+      const res = NextResponse.json({ error: "Missing message in request body" }, { status: 400 });
+      return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
+    }
+
+    const cacheKey = `assistant:${message.trim().toLowerCase()}`;
+    const cached = getCostCache<any>(cacheKey);
+    if (cached && (!history || history.length === 0)) {
+      const res = NextResponse.json({ ...cached, cached: true });
+      res.headers.set('X-Cache', 'HIT');
+      return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
     }
 
     const systemInstruction = "You are Companio, an intelligent accessibility companion assistant. You help people with disabilities (visual, hearing, speech, motor, cognitive) understand their surroundings. Answer questions about what the user can see or hear based on the context. Keep your responses very concise (maximum 3 sentences). Never give medical or emergency response advice beyond directing to call for help.";
@@ -14,10 +33,8 @@ export async function POST(req: NextRequest) {
     if (apiKey) {
       const geminiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
       
-      // Build conversation contents for multi-turn
       const contents: Array<{role: string; parts: Array<{text: string}>}> = [];
       
-      // Add system instruction as first user message
       contents.push({
         role: "user",
         parts: [{ text: systemInstruction + "\n\nContext details of what user currently sees/hears: " + context }]
@@ -27,7 +44,6 @@ export async function POST(req: NextRequest) {
         parts: [{ text: "Understood. I am Companio, your accessibility assistant. I will help you understand your surroundings and answer questions concisely." }]
       });
 
-      // Add conversation history
       if (history && history.length > 0) {
         for (const entry of history) {
           contents.push({
@@ -36,7 +52,6 @@ export async function POST(req: NextRequest) {
           });
         }
       } else {
-        // Just the current message
         contents.push({
           role: "user",
           parts: [{ text: message }]
@@ -51,16 +66,23 @@ export async function POST(req: NextRequest) {
 
       if (!response.ok) {
         const errorText = await response.text();
-        return NextResponse.json({ error: `Gemini API error: ${errorText}` }, { status: 500 });
+        const res = NextResponse.json({ error: `Gemini API error: ${errorText}` }, { status: 500 });
+        return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
       }
 
       const data = await response.json();
       const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "I'm sorry, I couldn't process that request.";
 
-      return NextResponse.json({
+      const payload = {
         reply: reply.trim(),
         source: "gemini-api"
-      });
+      };
+
+      setCostCache(cacheKey, payload);
+
+      const res = NextResponse.json(payload);
+      res.headers.set('X-Cache', 'MISS');
+      return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
     }
 
     // Smart Mock responses
@@ -79,11 +101,13 @@ export async function POST(req: NextRequest) {
       reply = "If this is an emergency, please contact 911 or emergency services immediately. Let me know if you would like me to announce your location.";
     }
 
-    return NextResponse.json({
+    const res = NextResponse.json({
       reply,
       source: "mock"
     });
+    return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const res = NextResponse.json({ error: error.message }, { status: 500 });
+    return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
   }
 }

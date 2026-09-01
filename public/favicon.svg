@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4f46e5" />
+      <stop offset="50%" stop-color="#3b82f6" />
+      <stop offset="100%" stop-color="#06b6d4" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="120" fill="url(#bgGrad)" />
+  <circle cx="256" cy="256" r="188" fill="none" stroke="#ffffff" stroke-width="16" opacity="0.25" />
+  
+  <!-- Outer pulse ring -->
+  <circle cx="256" cy="256" r="150" fill="none" stroke="#ffffff" stroke-width="20" stroke-dasharray="16 12" opacity="0.6" />
+  
+  <!-- Central Assistive Eye & Sound Symbol -->
+  <path d="M128 256 C168 180 344 180 384 256 C344 332 168 332 128 256 Z" fill="#ffffff" opacity="0.95" filter="url(#glow)" />
+  <circle cx="256" cy="256" r="48" fill="#1e1b4b" />
+  <circle cx="256" cy="256" r="24" fill="#38bdf8" />
+  
+  <!-- Accessibility Sound Waves / Satellite Nodes -->
+  <circle cx="256" cy="76" r="22" fill="#ffffff" />
+  <circle cx="256" cy="436" r="22" fill="#ffffff" />
+  <circle cx="76" cy="256" r="22" fill="#ffffff" />
+  <circle cx="436" cy="256" r="22" fill="#ffffff" />
+</svg>

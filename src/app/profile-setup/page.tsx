@@ -46,8 +46,13 @@ export default function ProfileSetupPage() {
   };
 
   const handleContinue = () => {
-    speak("Profile preference saved. Opening microphone permissions check page.", true);
-    router.push("/permission-mic");
+    speak("Profile preference saved. Opening account sign-in page.", true);
+    router.push("/sign-in");
+  };
+
+  const handleGuestQuickStart = () => {
+    speak("Entering Companio dashboard as guest.", true);
+    router.push("/home");
   };
 
   return (
@@ -55,7 +60,9 @@ export default function ProfileSetupPage() {
       {/* Title Block */}
       <div className="text-center md:text-left flex flex-col gap-2">
         <h1 className="text-3xl font-bold text-on-surface">Choose Accessibility Profile</h1>
-        <p className="text-lg text-on-surface-variant">Select the preset that matches your personal preference. You can change this at any time in settings.</p>
+        <p className="text-lg text-on-surface-variant">
+          Select the preset that matches your personal preference. You can change this anytime in settings.
+        </p>
       </div>
 
       {/* Profile cards */}
@@ -105,15 +112,24 @@ export default function ProfileSetupPage() {
       </div>
 
       {/* Continue action button */}
-      <button
-        onClick={handleContinue}
-        className="w-full h-[56px] rounded-xl bg-primary text-white font-bold text-lg hover:bg-primary-container active:scale-[0.98] transition-all flex items-center justify-center shadow-md cursor-pointer mt-4"
-        style={{
-          minHeight: userProfile.preset === "motor" ? "72px" : "56px",
-        }}
-      >
-        Save & Continue
-      </button>
+      <div className="flex flex-col gap-3 mt-4">
+        <button
+          onClick={handleContinue}
+          className="w-full h-[56px] rounded-xl bg-primary text-white font-bold text-lg hover:bg-primary-container active:scale-[0.98] transition-all flex items-center justify-center shadow-md cursor-pointer"
+          style={{
+            minHeight: userProfile.preset === "motor" ? "72px" : "56px",
+          }}
+        >
+          Save & Proceed to Sign In
+        </button>
+
+        <button
+          onClick={handleGuestQuickStart}
+          className="w-full h-[48px] rounded-xl bg-surface-container border border-outline hover:bg-surface-container-high text-on-surface-variant font-bold text-base cursor-pointer"
+        >
+          Continue as Guest Directly
+        </button>
+      </div>
     </div>
   );
 }

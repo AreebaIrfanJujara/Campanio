@@ -1,18 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { checkRateLimit, applyRateLimitHeaders, getCostCache, setCostCache } from '@/lib/rateLimit';
 
 export async function POST(req: NextRequest) {
+  const rateStatus = checkRateLimit(req);
+  if (!rateStatus.allowed) {
+    const res = NextResponse.json(
+      { error: "Rate limit exceeded. Please wait a moment." },
+      { status: 429 }
+    );
+    return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
+  }
+
   try {
     const { imageBase64 } = await req.json();
     const apiKey = process.env.GOOGLE_CLOUD_VISION_API_KEY;
 
     if (!imageBase64) {
-      return NextResponse.json({ error: "Missing imageBase64 in request body" }, { status: 400 });
+      const res = NextResponse.json({ error: "Missing imageBase64 in request body" }, { status: 400 });
+      return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
+    }
+
+    // Cost caching based on image hash snippet
+    const cacheKey = `ocr:${imageBase64.slice(0, 100)}:${imageBase64.length}`;
+    const cached = getCostCache<any>(cacheKey);
+    if (cached) {
+      const res = NextResponse.json({ ...cached, cached: true });
+      res.headers.set('X-Cache', 'HIT');
+      return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
     }
 
     if (apiKey) {
-      // Strip out base64 prefixes if any
       const cleanedBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "");
-
       const visionEndpoint = `https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`;
       const response = await fetch(visionEndpoint, {
         method: "POST",
@@ -32,7 +50,8 @@ export async function POST(req: NextRequest) {
 
       if (!response.ok) {
         const errorText = await response.text();
-        return NextResponse.json({ error: `Vision API error: ${errorText}` }, { status: 500 });
+        const res = NextResponse.json({ error: `Vision API error: ${errorText}` }, { status: 500 });
+        return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
       }
 
       const data = await response.json();
@@ -40,12 +59,18 @@ export async function POST(req: NextRequest) {
       const text = annotation?.text || "";
       const confidence = data.responses?.[0]?.textAnnotations?.[0] ? 0.95 : 0;
       
-      return NextResponse.json({
+      const payload = {
         text: text.trim() || "No text detected in the image.",
         confidence,
         language: annotation?.pages?.[0]?.property?.detectedLanguages?.[0]?.languageCode || "en",
         source: "google-cloud-vision"
-      });
+      };
+
+      setCostCache(cacheKey, payload);
+
+      const res = NextResponse.json(payload);
+      res.headers.set('X-Cache', 'MISS');
+      return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
     }
 
     // Mock Fallback
@@ -57,13 +82,17 @@ export async function POST(req: NextRequest) {
     ];
 
     const randomIndex = Math.floor(Math.random() * mockPhrases.length);
-    return NextResponse.json({
+    const mockPayload = {
       text: mockPhrases[randomIndex],
       confidence: 0.98,
       language: "en",
       source: "mock"
-    });
+    };
+
+    const res = NextResponse.json(mockPayload);
+    return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const res = NextResponse.json({ error: error.message }, { status: 500 });
+    return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
   }
 }

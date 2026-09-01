@@ -15,8 +15,8 @@ export default function WelcomePage() {
   }, []);
 
   const handleTapToBegin = () => {
-    speak("Beginning setup. Redirecting to sign in page.", true);
-    router.push("/sign-in");
+    speak("Beginning setup. Opening permissions request screen.", true);
+    router.push("/permission-mic");
   };
 
   return (

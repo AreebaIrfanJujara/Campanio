@@ -4,14 +4,17 @@ import React, { useState, useEffect, useRef } from "react";
 import { useAccessibility } from "@/context/AccessibilityContext";
 import { Soundwave } from "@/components/Soundwave";
 import { useToast } from "@/context/ToastContext";
+import { realtimeCaptions, CaptionMessage } from "@/lib/realtimeCaptions";
 
 export default function ConversationModePage() {
-  const { speak, stopSpeaking, isSpeaking, userProfile } = useAccessibility();
+  const { speak, userProfile } = useAccessibility();
   const { addToast } = useToast();
 
   const [themCaptions, setThemCaptions] = useState<string[]>([]);
   const [youText, setYouText] = useState<string>("");
   const [isListeningThem, setIsListeningThem] = useState<boolean>(true);
+  const [isSyncActive, setIsSyncActive] = useState<boolean>(false);
+  const [roomCode, setRoomCode] = useState<string>("");
   
   const scrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -27,6 +30,16 @@ export default function ConversationModePage() {
     "Sure! Let me grab that for you.",
   ];
   const [mockIndex, setMockIndex] = useState(0);
+
+  // Subscribe to Realtime Sync from other paired screen
+  useEffect(() => {
+    const unsubscribe = realtimeCaptions.subscribe((msg: CaptionMessage) => {
+      if (msg.speaker === "them") {
+        setThemCaptions((prev) => [...prev, msg.text]);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
   // Auto scroll top half captions
   useEffect(() => {
@@ -44,12 +57,28 @@ export default function ConversationModePage() {
     return () => stopListeningThem();
   }, [isListeningThem]);
 
+  const toggleRoomSync = () => {
+    if (isSyncActive) {
+      realtimeCaptions.leaveRoom();
+      setIsSyncActive(false);
+      setRoomCode("");
+      addToast("Conversation sync disconnected", "info");
+      speak("Conversation multi-device sync stopped.", true);
+    } else {
+      const code = `conv-${Math.floor(1000 + Math.random() * 9000)}`;
+      realtimeCaptions.joinRoom(code);
+      setIsSyncActive(true);
+      setRoomCode(code);
+      addToast(`Paired on Room ${code}`, "success");
+      speak(`Conversation paired on room ${code}. Other devices will sync speech in real time.`, true);
+    }
+  };
+
   const startListeningThem = () => {
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      // Fallback mock transcript loop
       runMockListening();
       return;
     }
@@ -67,7 +96,11 @@ export default function ConversationModePage() {
       rec.onresult = (event: any) => {
         const text = event.results[event.results.length - 1][0].transcript;
         if (text.trim()) {
-          setThemCaptions((prev) => [...prev, text.trim()]);
+          const trimmed = text.trim();
+          setThemCaptions((prev) => [...prev, trimmed]);
+          if (isSyncActive) {
+            realtimeCaptions.broadcastCaption({ text: trimmed, speaker: "them" });
+          }
         }
       };
 
@@ -83,7 +116,7 @@ export default function ConversationModePage() {
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
-      } catch (e) {}
+      } catch {}
     }
     if (mockTimeoutRef.current) {
       clearTimeout(mockTimeoutRef.current);
@@ -94,20 +127,28 @@ export default function ConversationModePage() {
     if (mockTimeoutRef.current) clearTimeout(mockTimeoutRef.current);
     const delay = Math.random() * 5000 + 4000;
     mockTimeoutRef.current = setTimeout(() => {
-      setThemCaptions((prev) => [...prev, mockThemPhrases[mockIndex]]);
-      setMockIndex((prev) => (prev + 1) % mockThemPhrases.length);
+      const phrase = mockThemPhrases[mockIndex];
+      setThemCaptions((prev) => [...prev, phrase]);
+      if (isSyncActive) {
+        realtimeCaptions.broadcastCaption({ text: phrase, speaker: "them" });
+      }
+      setMockIndex((prev) => (prev + 1) % mockPhrases.length);
       runMockListening();
     }, delay);
   };
+
+  const mockPhrases = mockThemPhrases;
 
   const handleSpeakYou = (text: string) => {
     if (!text.trim()) return;
     speak(text, true);
     addToast("Spoke text out loud", "success");
+    if (isSyncActive) {
+      realtimeCaptions.broadcastCaption({ text, speaker: "you" });
+    }
     setYouText("");
   };
 
-  // Key-phrase highlighting (same as captions page)
   const highlightKeyPhrases = (text: string) => {
     const keywords = /\b(\d+(?:\.\d+)?|\d+\s*(?:AM|PM|am|pm)|left|right|ahead|behind|straight|exit|restroom|doctor|pharmacy|yes|no|please|thank)\b/gi;
     const parts = text.split(keywords);
@@ -133,14 +174,28 @@ export default function ConversationModePage() {
   return (
     <div className="flex-grow flex flex-col h-[calc(100vh-140px)] w-full max-w-2xl mx-auto overflow-hidden border-x border-outline-variant bg-background">
       
-      {/* Top Half: THEM (Dark background, large captions, listening state) */}
+      {/* Top Half: THEM (Facing other person) */}
       <div className="flex-1 bg-zinc-950 text-white p-6 flex flex-col justify-between overflow-hidden relative">
         <div className="flex justify-between items-center border-b border-white/10 pb-3">
           <div className="flex items-center gap-2">
             <span className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></span>
             <span className="font-bold text-base text-zinc-400 uppercase tracking-wider">Listening to them</span>
+            {isSyncActive && (
+              <span className="font-mono text-xs text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/30">
+                {roomCode}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={toggleRoomSync}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold border cursor-pointer transition-all ${
+                isSyncActive ? "bg-emerald-600 text-white border-emerald-500" : "bg-zinc-900 text-zinc-400 border-zinc-700"
+              }`}
+              title="Pair with secondary device"
+            >
+              {isSyncActive ? "Paired" : "Pair Sync"}
+            </button>
             <button
               onClick={handleCopyAllCaptions}
               className="w-8 h-8 rounded-lg flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/10 cursor-pointer"
@@ -150,7 +205,7 @@ export default function ConversationModePage() {
             </button>
             <button
               onClick={() => setIsListeningThem(!isListeningThem)}
-              className={`px-3 py-1 rounded-lg text-xs font-bold border ${
+              className={`px-3 py-1 rounded-lg text-xs font-bold border cursor-pointer ${
                 isListeningThem ? "border-red-500/30 text-red-400 bg-red-950/20" : "border-zinc-700 text-zinc-300"
               }`}
             >
@@ -187,19 +242,16 @@ export default function ConversationModePage() {
         </div>
       </div>
 
-      {/* Bottom Half: YOU (Light background, Quick responses, Custom input) */}
+      {/* Bottom Half: YOU */}
       <div className="flex-1 bg-surface p-6 flex flex-col justify-between overflow-hidden text-on-surface">
-        {/* Avatar label */}
         <div className="flex justify-between items-center border-b border-outline-variant pb-2.5">
           <span className="font-bold text-base text-on-surface-variant uppercase tracking-wider">Your Speech board</span>
-          {isSpeaking && (
-            <span className="flex items-center gap-1.5 bg-teal-500/10 text-teal-600 px-3 py-1 rounded-full text-xs font-bold border border-teal-500/20 animate-pulse">
-              Speaking out loud
-            </span>
+          {userProfile && (
+            <span className="text-xs font-bold text-on-surface-variant capitalize">{userProfile.preset} mode</span>
           )}
         </div>
 
-        {/* Quick presets board (Horizontal Scroll) */}
+        {/* Quick presets board */}
         <div className="py-4 flex gap-3 overflow-x-auto scrollbar-none snap-x snap-mandatory">
           {presets.map((preset, index) => (
             <button

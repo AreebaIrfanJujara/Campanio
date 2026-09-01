@@ -1,0 +1,69 @@
+{
+  "name": "Companio Accessibility Suite",
+  "short_name": "Companio",
+  "description": "Advanced assistant for visual, hearing, cognitive, and motor accessibility with offline support.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0f172a",
+  "theme_color": "#1e1b4b",
+  "categories": ["accessibility", "utilities", "lifestyle"],
+  "lang": "en-US",
+  "icons": [
+    {
+      "src": "/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Speak For Me",
+      "short_name": "Speak",
+      "description": "AAC phrase boards and type to speak aloud",
+      "url": "/home/type-to-speak",
+      "icons": [{ "src": "/icons/icon-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Live Captions",
+      "short_name": "Captions",
+      "description": "Real-time speech to text captions",
+      "url": "/home/captions",
+      "icons": [{ "src": "/icons/icon-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Read Text (OCR)",
+      "short_name": "OCR",
+      "description": "Scan text from camera",
+      "url": "/home/ocr",
+      "icons": [{ "src": "/icons/icon-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Live Translation",
+      "short_name": "Translate",
+      "description": "Instant multilingual translation",
+      "url": "/home/translation",
+      "icons": [{ "src": "/icons/icon-192x192.png", "sizes": "192x192" }]
+    }
+  ]
+}

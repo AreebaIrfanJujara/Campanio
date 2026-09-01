@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useAccessibility } from "@/context/AccessibilityContext";
+import { useOffline } from "@/context/OfflineContext";
 import { CompanioAPI } from "@/lib/api";
 import { useToast } from "@/context/ToastContext";
 import { Soundwave } from "@/components/Soundwave";
@@ -11,6 +12,7 @@ type TranslateMode = "text" | "ocr" | "voice";
 
 export default function TranslationPage() {
   const { speak, userProfile } = useAccessibility();
+  const { isOnline } = useOffline();
   const { addToast } = useToast();
   const { logActivity } = useActivity();
 
@@ -21,6 +23,7 @@ export default function TranslationPage() {
   // Text Mode States
   const [inputText, setInputText] = useState<string>("");
   const [translatedText, setTranslatedText] = useState<string>("");
+  const [translationSource, setTranslationSource] = useState<string>("");
 
   // OCR Mode States
   const [hasCamera, setHasCamera] = useState<boolean>(false);
@@ -90,8 +93,12 @@ export default function TranslationPage() {
     try {
       const res = await CompanioAPI.translate(inputText, targetLang);
       setTranslatedText(res.translatedText);
+      setTranslationSource(res.source);
       speak(`Translation complete: ${res.translatedText}`, true);
-      addToast("Translated!", "success");
+      addToast(
+        res.isOffline ? "Translated via Offline Dictionary" : "Translated!",
+        "success"
+      );
       logActivity("translation", `Translated: ${inputText.slice(0, 30)}...`, "translate", `to ${targetLang}`);
     } catch (e) {
       console.error(e);
@@ -135,8 +142,8 @@ export default function TranslationPage() {
       // Then translate the OCR result
       const res = await CompanioAPI.translate(scannedText, targetLang);
       setOcrTranslation(res.translatedText);
-      speak(`Scanned and translated. Here is translation: ${res.translatedText}`, true);
-      addToast("Successfully scanned & translated", "success");
+      speak(`Scanned and translated: ${res.translatedText}`, true);
+      addToast(res.isOffline ? "Scanned & translated (offline)" : "Successfully scanned & translated", "success");
     } catch (err) {
       console.error(err);
       // Fallback mock
@@ -146,8 +153,8 @@ export default function TranslationPage() {
         const res = await CompanioAPI.translate(mockScanned, targetLang);
         setOcrTranslation(res.translatedText);
         speak(`Scanned and translated: ${res.translatedText}`, true);
-        addToast("Scanned & translated (demo)", "success");
-      } catch (translateErr) {
+        addToast("Scanned & translated", "success");
+      } catch {
         addToast("Translation failed", "error");
       }
     } finally {
@@ -173,7 +180,7 @@ export default function TranslationPage() {
         try {
           const res = await CompanioAPI.translate(mockVoice, targetLang);
           setVoiceTranslation(res.translatedText);
-          speak(res.translatedText, true); // Auto speak translation
+          speak(res.translatedText, true);
           addToast("Translated and read aloud", "success");
         } catch (e) {
           console.error(e);
@@ -208,7 +215,7 @@ export default function TranslationPage() {
         try {
           const res = await CompanioAPI.translate(text, targetLang);
           setVoiceTranslation(res.translatedText);
-          speak(res.translatedText, true); // Auto read translated text
+          speak(res.translatedText, true);
           addToast("Translation complete", "success");
         } catch (e) {
           console.error(e);
@@ -231,9 +238,20 @@ export default function TranslationPage() {
     <div className="flex-grow flex flex-col px-margin-edge py-stack-lg gap-6 max-w-2xl mx-auto w-full">
       {/* Title */}
       <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold text-on-surface">Live Translation</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-3xl font-bold text-on-surface">Live Translation</h1>
+          <span
+            className={`text-xs font-bold px-3 py-1 rounded-full border ${
+              isOnline
+                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
+                : "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30"
+            }`}
+          >
+            {isOnline ? "Cloud Translate" : "Offline Engine (8 Langs)"}
+          </span>
+        </div>
         <p className="text-lg text-on-surface-variant leading-relaxed">
-          Translate conversation speech, sign camera views, or custom text.
+          Translate conversation speech, sign camera views, or custom text online or offline.
         </p>
       </div>
 
@@ -282,7 +300,7 @@ export default function TranslationPage() {
             <textarea
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
-              placeholder="Enter text to translate..."
+              placeholder="Enter text to translate (e.g. Where is the restroom? Thank you, Emergency help)..."
               className="w-full h-36 p-4 border-2 border-outline rounded-2xl bg-surface-container text-xl text-on-surface focus:outline-primary resize-none font-bold font-display-ocr"
               aria-label="Text to translate input area"
             />
@@ -297,9 +315,16 @@ export default function TranslationPage() {
             {translatedText && (
               <div className="bg-surface border-2 border-primary rounded-2xl p-5 shadow flex flex-col gap-3">
                 <div className="flex justify-between items-center">
-                  <span className="text-xs uppercase font-black tracking-wider text-primary">
-                    Translated text
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs uppercase font-black tracking-wider text-primary">
+                      Translated text
+                    </span>
+                    {translationSource && (
+                      <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-surface-container border text-on-surface-variant">
+                        {translationSource.startsWith("offline") ? "Offline Dict" : "Cloud"}
+                      </span>
+                    )}
+                  </div>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => {

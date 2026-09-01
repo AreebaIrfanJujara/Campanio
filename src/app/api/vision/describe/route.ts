@@ -1,12 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { checkRateLimit, applyRateLimitHeaders, getCostCache, setCostCache } from '@/lib/rateLimit';
+import { detectHazards } from '@/lib/hazardDetection';
 
 export async function POST(req: NextRequest) {
+  const rateStatus = checkRateLimit(req);
+  if (!rateStatus.allowed) {
+    const res = NextResponse.json(
+      { error: "Rate limit exceeded. Please wait a moment." },
+      { status: 429 }
+    );
+    return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
+  }
+
   try {
     const { imageBase64 } = await req.json();
     const apiKey = process.env.GOOGLE_CLOUD_VISION_API_KEY;
 
     if (!imageBase64) {
-      return NextResponse.json({ error: "Missing imageBase64 in request body" }, { status: 400 });
+      const res = NextResponse.json({ error: "Missing imageBase64 in request body" }, { status: 400 });
+      return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
+    }
+
+    const cacheKey = `describe:${imageBase64.slice(0, 100)}:${imageBase64.length}`;
+    const cached = getCostCache<any>(cacheKey);
+    if (cached) {
+      const res = NextResponse.json({ ...cached, cached: true });
+      res.headers.set('X-Cache', 'HIT');
+      return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
     }
 
     if (apiKey) {
@@ -30,7 +50,8 @@ export async function POST(req: NextRequest) {
 
       if (!response.ok) {
         const errorText = await response.text();
-        return NextResponse.json({ error: `Vision API error: ${errorText}` }, { status: 500 });
+        const res = NextResponse.json({ error: `Vision API error: ${errorText}` }, { status: 500 });
+        return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
       }
 
       const data = await response.json();
@@ -39,31 +60,31 @@ export async function POST(req: NextRequest) {
       const labels = responseObj?.labelAnnotations || [];
       const localizedObjects = responseObj?.localizedObjectAnnotations || [];
 
-      // Generate a descriptive sentence based on labels
       const objectsDetected = localizedObjects.map((obj: any) => ({
         name: obj.name,
         confidence: obj.score,
-        box: obj.boundingPoly
       }));
 
-      const topLabels = labels.slice(0, 5).map((l: any) => l.description.toLowerCase());
-      let description = "I see a scene with " + (topLabels.join(", ") || "various objects") + ".";
+      const labelDescriptions = labels.map((l: any) => l.description);
+      const topLabels = labelDescriptions.slice(0, 5);
+      const description = "I see a scene with " + (topLabels.join(", ") || "various objects") + ". Walking space scanned.";
       
-      // Look for obstacles
-      const hazards: string[] = [];
-      const hazardKeywords = ["stair", "curb", "hole", "ledge", "drop", "step"];
-      topLabels.forEach((label: string) => {
-        if (hazardKeywords.some(keyword => label.includes(keyword))) {
-          hazards.push(`Potential elevation change or step detected: ${label}`);
-        }
-      });
+      // Advanced spatial hazard evaluations
+      const hazardEvals = detectHazards(labelDescriptions, description);
+      const hazards = hazardEvals.map((h) => h.alertText);
 
-      return NextResponse.json({
+      const payload = {
         description,
-        objects: objectsDetected.map((o: any) => ({ name: o.name, confidence: o.confidence })),
+        objects: objectsDetected,
         hazards,
         source: "google-cloud-vision"
-      });
+      };
+
+      setCostCache(cacheKey, payload);
+
+      const res = NextResponse.json(payload);
+      res.headers.set('X-Cache', 'MISS');
+      return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
     }
 
     // Mock Fallback
@@ -92,16 +113,18 @@ export async function POST(req: NextRequest) {
           { name: "Stairs", confidence: 0.93 },
           { name: "Handrail", confidence: 0.85 }
         ],
-        hazards: ["staircase / step down ahead"]
+        hazards: ["Critical: STAIRS detected ahead. Please stop and verify your footing."]
       }
     ];
 
     const randomIndex = Math.floor(Math.random() * mockScenes.length);
-    return NextResponse.json({
+    const res = NextResponse.json({
       ...mockScenes[randomIndex],
       source: "mock"
     });
+    return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const res = NextResponse.json({ error: error.message }, { status: 500 });
+    return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
   }
 }

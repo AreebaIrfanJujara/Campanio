@@ -1,14 +1,41 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AccessibilityProvider } from "@/context/AccessibilityContext";
 import { ToastProvider } from "@/context/ToastContext";
 import { ActivityProvider } from "@/context/ActivityContext";
+import { OfflineProvider } from "@/context/OfflineContext";
 import { ToastContainer } from "@/components/Toast";
 import { AppLayoutShell } from "@/components/AppLayoutShell";
+import { OfflineBanner } from "@/components/OfflineBanner";
+import { InstallPwaPrompt } from "@/components/InstallPwaPrompt";
+
+export const viewport: Viewport = {
+  themeColor: "#1e1b4b",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  userScalable: true,
+};
 
 export const metadata: Metadata = {
   title: "Companio Accessibility Suite",
-  description: "Advanced assistant for visual, hearing, cognitive, and motor accessibility.",
+  description: "Advanced assistant for visual, hearing, cognitive, and motor accessibility with full offline support.",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Companio",
+  },
+  icons: {
+    icon: [
+      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/icons/icon-192x192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512x512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [
+      { url: "/icons/apple-touch-icon.png", sizes: "192x192", type: "image/png" },
+    ],
+  },
 };
 
 export default function RootLayout({
@@ -19,23 +46,29 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
-        {/* Load Inter Font */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        {/* Load Inter font and Material Symbols Outlined & Material Icons */}
         <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
           rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&family=Material+Icons&display=block"
         />
-        {/* Load Material Symbols Outlined for accessibility icons */}
-        <link
-          href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap"
-          rel="stylesheet"
-        />
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content="Companio" />
       </head>
       <body className="antialiased">
         <AccessibilityProvider>
           <ActivityProvider>
             <ToastProvider>
-              <AppLayoutShell>{children}</AppLayoutShell>
-              <ToastContainer />
+              <OfflineProvider>
+                <OfflineBanner />
+                <AppLayoutShell>{children}</AppLayoutShell>
+                <InstallPwaPrompt />
+                <ToastContainer />
+              </OfflineProvider>
             </ToastProvider>
           </ActivityProvider>
         </AccessibilityProvider>
