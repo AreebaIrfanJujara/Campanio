@@ -1,0 +1,50 @@
+{
+  "expo": {
+    "name": "Companio Accessibility Suite",
+    "slug": "companio",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1e1b4b"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.companio.accessibility",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Companio uses your camera to read text labels and narrate surrounding obstacles in real-time.",
+        "NSMicrophoneUsageDescription": "Companio uses your microphone to transcribe live speech and captions in real-time."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1e1b4b"
+      },
+      "package": "com.companio.accessibility",
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "MODIFY_AUDIO_SETTINGS",
+        "VIBRATE"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Companio to access your camera for text and room recognition."
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Allow Companio to access your microphone for live captions."
+        }
+      ]
+    ]
+  }
+}
