@@ -15,7 +15,6 @@
   },
   "dependencies": {
     "@capacitor/android": "^8.5.1",
-    "@capacitor/cli": "^8.5.1",
     "@capacitor/core": "^8.5.1",
     "@supabase/supabase-js": "^2.112.4",
     "framer-motion": "^13.1.1",
@@ -24,6 +23,7 @@
     "react-dom": "19.2.8"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
