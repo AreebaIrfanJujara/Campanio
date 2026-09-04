@@ -68,7 +68,7 @@ export default function TypeToSpeakPage() {
       const prefix = words.length > 0 ? words.join(" ") + " " : "";
       setCustomText(prefix + suggestion);
     }
-    speak(suggestion);
+    speak(suggestion, true);
   };
 
   const handleAddCustomPhrase = (e: React.FormEvent) => {
@@ -105,37 +105,37 @@ export default function TypeToSpeakPage() {
     {
       title: "Basic Responses",
       presets: [
-        { text: "Yes", label: "Yes" },
-        { text: "No", label: "No" },
-        { text: "Thank you very much.", label: "Thank you" },
-        { text: "One moment, please.", label: "Please wait" },
+        { text: "Yes", label: "Yes / جی ہاں" },
+        { text: "No", label: "No / نہیں" },
+        { text: "Thank you very much.", label: "Thank you / شکریہ" },
+        { text: "One moment, please.", label: "Please wait / ایک منٹ" },
       ],
       borderClass: "border-outline-variant",
     },
     {
-      title: "Navigation Help",
+      title: "Navigation & Surroundings",
       presets: [
-        { text: "Where is the exit?", label: "Where is exit?" },
-        { text: "Where is the restroom?", label: "Restroom?" },
-        { text: "I need directions.", label: "Need directions" },
-        { text: "How far is it?", label: "How far?" },
+        { text: "Where is the emergency exit?", label: "Emergency Exit" },
+        { text: "Where is the nearest restroom?", label: "Restroom" },
+        { text: "I need directions, please.", label: "Need Directions" },
+        { text: "How far is the entrance?", label: "Entrance Distance" },
       ],
       borderClass: "border-secondary",
     },
     {
       title: "Assistance & Medical",
       presets: [
-        { text: "Please call for assistance.", label: "Call for help" },
-        { text: "I cannot see clearly.", label: "Low vision alert" },
-        { text: "Please write it down.", label: "Write down" },
-        { text: "I need my medication.", label: "Medication" },
+        { text: "Please call for assistance.", label: "Call For Help" },
+        { text: "I have low vision and need a guide.", label: "Visual Assistance" },
+        { text: "Please write it down for me.", label: "Write It Down" },
+        { text: "I need urgent medical attention.", label: "Medical Help" },
       ],
       borderClass: "border-error",
     },
   ];
 
   return (
-    <div className="flex-grow flex flex-col px-margin-edge py-stack-lg gap-6 max-w-2xl mx-auto w-full text-on-surface">
+    <div className="flex-grow flex flex-col px-margin-edge py-stack-lg gap-6 w-full text-on-surface">
       {/* Title */}
       <div className="flex flex-col gap-2">
         <h1 className="text-3xl font-bold font-display-ocr">Speak For Me</h1>
@@ -311,6 +311,12 @@ export default function TypeToSpeakPage() {
                 <div
                   key={index}
                   onClick={() => handleSpeak(phrase.text)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      handleSpeak(phrase.text);
+                    }
+                  }}
                   className="h-[64px] px-4 bg-surface-container border-2 border-primary/40 rounded-xl text-lg font-bold hover:bg-surface-container-high transition-all cursor-pointer flex items-center justify-between text-left group"
                   style={{
                     minHeight: userProfile.preset === "motor" ? "76px" : "64px",

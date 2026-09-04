@@ -21,6 +21,7 @@ export default function SettingsPage() {
   const {
     theme,
     toggleTheme,
+    setThemeMode,
     voiceVolume,
     setVoiceVolume,
     speechRate,
@@ -29,6 +30,8 @@ export default function SettingsPage() {
     setSpeechPitch,
     voiceGuidanceActive,
     setVoiceGuidanceActive,
+    wakeWordActive,
+    setWakeWordActive,
     userProfile,
     applyPreset,
     setUserProfile,
@@ -107,7 +110,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="flex-grow flex flex-col px-margin-edge py-stack-lg gap-6 max-w-2xl mx-auto w-full text-on-surface">
+    <div className="flex-grow flex flex-col px-margin-edge md:px-8 lg:px-12 py-stack-lg gap-6 w-full text-on-surface">
       {/* Title */}
       <div className="flex flex-col gap-2">
         <h1 className="text-3xl font-bold font-display-ocr">Settings</h1>
@@ -116,7 +119,7 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      <div className="flex flex-col gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
         
         {/* Profile Card Section */}
         <section className="bg-surface-container rounded-3xl p-6 border border-outline-variant flex flex-col gap-4">
@@ -143,13 +146,15 @@ export default function SettingsPage() {
           </div>
 
           <div className="flex flex-col gap-2">
-            <span className="font-bold text-base text-on-surface">Change Profile Focus</span>
-            <div className="grid grid-cols-2 gap-3">
+            <span id="profile-focus-label" className="font-bold text-base text-on-surface">Change Profile Focus</span>
+            <div role="radiogroup" aria-labelledby="profile-focus-label" className="grid grid-cols-2 gap-3">
               {(["standard", "visual", "hearing", "motor"] as PresetType[]).map((p) => {
                 const isActive = userProfile.preset === p;
                 return (
                   <button
                     key={p}
+                    role="radio"
+                    aria-checked={isActive}
                     onClick={() => handlePresetChange(p)}
                     className={`h-[56px] rounded-xl border-2 text-base font-bold capitalize cursor-pointer transition-all active:scale-95 ${
                       isActive
@@ -314,27 +319,66 @@ export default function SettingsPage() {
             Visual Accessibility
           </h2>
           
-          <ToggleSwitch
-            id="high-contrast-toggle"
-            checked={theme === "high-contrast"}
-            onChange={(checked) => {
-              speak(checked ? "High contrast mode enabled." : "Standard contrast mode enabled.", true);
-              toggleTheme();
-            }}
-            label="High Contrast Mode"
-            description="Pure pitch-black background with white text and yellow rings."
-          />
+          {/* 3-way theme segmented control */}
+          <div className="flex flex-col gap-3">
+            <span id="display-theme-label" className="font-bold text-base text-on-surface">Display Theme</span>
+            <div role="radiogroup" aria-labelledby="display-theme-label" className="flex rounded-xl bg-surface-container-low p-1 border border-outline-variant gap-1">
+              {(["standard", "dark", "high-contrast"] as const).map((t) => {
+                const labels: Record<string, string> = {
+                  standard: "Light",
+                  dark: "Dark",
+                  "high-contrast": "High Contrast",
+                };
+                const isActive = theme === t;
+                return (
+                  <button
+                    key={t}
+                    role="radio"
+                    aria-checked={isActive}
+                    onClick={() => {
+                      setThemeMode(t);
+                      speak(
+                        t === "standard"
+                          ? "Light mode activated."
+                          : t === "dark"
+                          ? "Dark mode activated. Easier on the eyes in low light."
+                          : "High contrast mode activated. Maximum contrast for low vision.",
+                        true
+                      );
+                    }}
+                    className={`flex-grow h-10 rounded-lg text-sm font-bold capitalize cursor-pointer transition-all ${
+                      isActive
+                        ? "bg-primary text-white shadow-sm"
+                        : "text-on-surface-variant hover:bg-surface-container-high"
+                    }`}
+                  >
+                    {labels[t]}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex flex-col gap-1 text-sm text-on-surface-variant pl-1">
+              {theme === "dark" && (
+                <span>Dark — easier on the eyes in low light</span>
+              )}
+              {theme === "high-contrast" && (
+                <span>High Contrast — maximum contrast for low vision</span>
+              )}
+            </div>
+          </div>
 
           {/* Caption text sizes */}
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between py-2 border-t border-outline-variant pt-3 gap-2">
             <div className="flex flex-col">
-              <span className="font-bold text-base text-on-surface">Caption Text Size</span>
+              <span id="caption-size-label" className="font-bold text-base text-on-surface">Caption Text Size</span>
               <span className="text-sm text-on-surface-variant">Adjust size of speech-to-text bubbles</span>
             </div>
-            <div className="flex bg-surface rounded-xl p-1 border border-outline-variant self-start">
+            <div role="radiogroup" aria-labelledby="caption-size-label" className="flex bg-surface rounded-xl p-1 border border-outline-variant self-start">
               {(["sm", "md", "lg"] as const).map((sz) => (
                 <button
                   key={sz}
+                  role="radio"
+                  aria-checked={captionSize === sz}
                   onClick={() => {
                     setCaptionSize(sz);
                     speak(`Caption text size set to ${sz === "sm" ? "small" : sz === "md" ? "medium" : "large"}`);
@@ -381,6 +425,37 @@ export default function SettingsPage() {
             description="Announces screen names and focus hints dynamically."
           />
 
+          {/* Wake Word Toggle */}
+          <div className="border-t border-outline-variant pt-3">
+            <ToggleSwitch
+              id="wake-word-toggle"
+              checked={wakeWordActive}
+              onChange={async (checked) => {
+                if (checked) {
+                  try {
+                    // Proactively request mic permission to trigger browser prompt at toggle-on time
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    stream.getTracks().forEach((track) => track.stop());
+                    setWakeWordActive(true);
+                    addToast("Wake word active. Say 'Hi Companio' anytime.", "success");
+                    speak("Wake word detection enabled. Say Hi Companio anytime while the app is open to activate voice assistant.", true);
+                  } catch (err) {
+                    console.warn("Microphone permission denied for wake word:", err);
+                    setWakeWordActive(false);
+                    addToast("Microphone permission is required for wake word detection", "error");
+                    speak("Microphone permission was denied. Wake word detection cannot be activated.", true);
+                  }
+                } else {
+                  setWakeWordActive(false);
+                  addToast("Wake word disabled", "info");
+                  speak("Wake word detection disabled.", true);
+                }
+              }}
+              label="Wake Word ('Hi Companio')"
+              description="When enabled, saying 'Hi Companio' while the app is open opens the voice assistant. Requires the microphone to stay active while Companio is open. Does not work when the app is closed or the screen is locked."
+            />
+          </div>
+
           {/* TTS Voice Selector */}
           <div className="flex justify-between items-center py-2 border-t border-outline-variant pt-3 gap-4">
             <div className="flex flex-col text-left">
@@ -407,16 +482,26 @@ export default function SettingsPage() {
           {/* Speed slider */}
           <div className="flex flex-col gap-2 border-t border-outline-variant pt-3">
             <div className="flex justify-between font-bold text-base text-on-surface">
-              <span>Speech Rate (Speed)</span>
-              <span>{speechRate.toFixed(1)}x</span>
+              <label htmlFor="speech-rate-slider">Speech Rate (Speed)</label>
+              <span aria-hidden="true">{speechRate.toFixed(1)}x</span>
             </div>
             <input
               type="range"
+              id="speech-rate-slider"
+              aria-label="Speech Rate Speed"
+              aria-valuemin={0.5}
+              aria-valuemax={2.0}
+              aria-valuenow={speechRate}
+              aria-valuetext={`${speechRate.toFixed(1)} times normal speed`}
               min="0.5"
               max="2.0"
               step="0.1"
               value={speechRate}
-              onChange={(e) => setSpeechRate(parseFloat(e.target.value))}
+              onChange={(e) => {
+                const val = parseFloat(e.target.value);
+                setSpeechRate(val);
+                speak(`Speed ${val.toFixed(1)}x`, true);
+              }}
               className="w-full h-2 bg-outline/20 rounded-lg appearance-none cursor-pointer accent-primary focus:outline-none"
             />
           </div>
@@ -424,16 +509,26 @@ export default function SettingsPage() {
           {/* Pitch slider */}
           <div className="flex flex-col gap-2">
             <div className="flex justify-between font-bold text-base text-on-surface">
-              <span>Speech Pitch</span>
-              <span>{speechPitch.toFixed(1)}</span>
+              <label htmlFor="speech-pitch-slider">Speech Pitch</label>
+              <span aria-hidden="true">{speechPitch.toFixed(1)}</span>
             </div>
             <input
               type="range"
+              id="speech-pitch-slider"
+              aria-label="Speech Pitch"
+              aria-valuemin={0.5}
+              aria-valuemax={2.0}
+              aria-valuenow={speechPitch}
+              aria-valuetext={`${speechPitch.toFixed(1)} pitch scale`}
               min="0.5"
               max="2.0"
               step="0.1"
               value={speechPitch}
-              onChange={(e) => setSpeechPitch(parseFloat(e.target.value))}
+              onChange={(e) => {
+                const val = parseFloat(e.target.value);
+                setSpeechPitch(val);
+                speak(`Pitch ${val.toFixed(1)}`, true);
+              }}
               className="w-full h-2 bg-outline/20 rounded-lg appearance-none cursor-pointer accent-primary focus:outline-none"
             />
           </div>
@@ -441,16 +536,26 @@ export default function SettingsPage() {
           {/* Volume slider */}
           <div className="flex flex-col gap-2">
             <div className="flex justify-between font-bold text-base text-on-surface">
-              <span>Speech Volume</span>
-              <span>{Math.round(voiceVolume * 100)}%</span>
+              <label htmlFor="speech-volume-slider">Speech Volume</label>
+              <span aria-hidden="true">{Math.round(voiceVolume * 100)}%</span>
             </div>
             <input
               type="range"
+              id="speech-volume-slider"
+              aria-label="Speech Volume"
+              aria-valuemin={0.0}
+              aria-valuemax={1.0}
+              aria-valuenow={voiceVolume}
+              aria-valuetext={`${Math.round(voiceVolume * 100)} percent`}
               min="0.0"
               max="1.0"
               step="0.1"
               value={voiceVolume}
-              onChange={(e) => setVoiceVolume(parseFloat(e.target.value))}
+              onChange={(e) => {
+                const val = parseFloat(e.target.value);
+                setVoiceVolume(val);
+                speak(`Volume ${Math.round(val * 100)}%`, true);
+              }}
               className="w-full h-2 bg-outline/20 rounded-lg appearance-none cursor-pointer accent-primary focus:outline-none"
             />
           </div>

@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { useAccessibility } from "@/context/AccessibilityContext";
+import { CameraPermissionView } from "@/components/CameraPermissionView";
 import { useToast } from "@/context/ToastContext";
 import { wearableBridge } from "@/lib/wearableBridge";
 
@@ -68,12 +69,16 @@ export default function CurrencyScannerPage() {
     if (videoRef.current && canvasRef.current && cameraActive) {
       const video = videoRef.current;
       const canvas = canvasRef.current;
-      canvas.width = video.videoWidth || 640;
-      canvas.height = video.videoHeight || 480;
+      const vw = video.videoWidth || 640;
+      const vh = video.videoHeight || 480;
+      const maxDim = 640;
+      const scale = Math.min(1, maxDim / Math.max(vw, vh));
+      canvas.width = Math.round(vw * scale);
+      canvas.height = Math.round(vh * scale);
       const ctx = canvas.getContext("2d");
       if (ctx) {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        imageBase64 = canvas.toDataURL("image/jpeg", 0.8);
+        imageBase64 = canvas.toDataURL("image/jpeg", 0.7);
       }
     }
 
@@ -85,10 +90,16 @@ export default function CurrencyScannerPage() {
       });
 
       const data = await res.json();
+      if (data.error || !data.denomination) {
+        speak("No banknote denomination recognized. Please ensure the bill is visible and well-lit.", true);
+        addToast("No banknote recognized. Please try again.", "warning");
+        return;
+      }
+
       const newItem: ScannedItem = {
         id: Date.now(),
-        description: data.description || "$20 US Dollar Banknote",
-        amount: data.denomination || 20,
+        description: data.description,
+        amount: data.denomination,
         currency: data.currency || "USD",
         symbol: data.symbol || "$",
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -102,7 +113,8 @@ export default function CurrencyScannerPage() {
       speak(`Detected: ${newItem.description}. Total wallet balance: ${newItem.symbol}${(runningTotal + newItem.amount).toFixed(2)}`, true);
       addToast(newItem.description, "success");
     } catch (e) {
-      speak("Banknote detected: Twenty US Dollars.", true);
+      speak("Could not scan currency. Please aim camera at the banknote.", true);
+      addToast("Scan failed. Try again.", "error");
     } finally {
       setIsScanning(false);
     }
@@ -133,10 +145,16 @@ export default function CurrencyScannerPage() {
           body: JSON.stringify({ imageBase64: base64 }),
         });
         const data = await res.json();
+        if (data.error || !data.denomination) {
+          speak("No currency recognized in uploaded image.", true);
+          addToast("No currency found in image", "warning");
+          return;
+        }
+
         const newItem: ScannedItem = {
           id: Date.now(),
-          description: data.description || "$50 US Dollar Banknote",
-          amount: data.denomination || 50,
+          description: data.description,
+          amount: data.denomination,
           currency: data.currency || "USD",
           symbol: data.symbol || "$",
           time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -148,7 +166,8 @@ export default function CurrencyScannerPage() {
         speak(`Detected: ${newItem.description}`, true);
         addToast(newItem.description, "success");
       } catch {
-        speak("Scanned: Fifty US Dollars.", true);
+        speak("Could not process uploaded image for currency.", true);
+        addToast("Upload scan failed", "error");
       } finally {
         setIsScanning(false);
       }
@@ -157,7 +176,7 @@ export default function CurrencyScannerPage() {
   };
 
   return (
-    <div className="flex-grow flex flex-col px-margin-edge py-stack-lg gap-6 max-w-2xl mx-auto w-full text-on-surface">
+    <div className="flex-grow flex flex-col px-margin-edge py-stack-lg gap-6 w-full text-on-surface">
       {/* Header & Total Counter */}
       <div className="flex items-center justify-between border-b border-outline-variant pb-3">
         <div>
@@ -171,31 +190,73 @@ export default function CurrencyScannerPage() {
         </div>
       </div>
 
-      {/* Viewfinder Area */}
-      <div className="w-full aspect-[4/3] max-h-[360px] bg-black rounded-3xl overflow-hidden relative border-4 border-outline-variant shadow-inner flex items-center justify-center">
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted
-          className="w-full h-full object-cover"
-        />
-        <canvas ref={canvasRef} className="hidden" />
+      {/* Viewfinder Area or Permission Prompt */}
+      {cameraActive ? (
+        <div className="w-full aspect-[4/3] max-h-[360px] bg-black rounded-3xl overflow-hidden relative border-4 border-outline-variant shadow-inner flex items-center justify-center">
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            className="w-full h-full object-cover"
+          />
+          <canvas ref={canvasRef} className="hidden" />
 
-        {/* Framing Guide for Banknotes */}
-        <div className="absolute inset-8 border-2 border-dashed border-[#ffd400] rounded-2xl pointer-events-none flex items-center justify-center">
-          <span className="bg-black/60 backdrop-blur-sm text-[#ffd400] font-extrabold text-xs px-3 py-1 rounded-full uppercase tracking-wider">
-            Align Banknote or Barcode
-          </span>
-        </div>
-
-        {/* Scanning sweep indicator */}
-        {isScanning && (
-          <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
-            <div className="w-10 h-10 rounded-full border-4 border-white border-t-transparent animate-spin"></div>
+          {/* Framing Guide for Banknotes */}
+          <div className="absolute inset-8 border-2 border-dashed border-[#ffd400] rounded-2xl pointer-events-none flex items-center justify-center">
+            <span className="bg-black/60 backdrop-blur-sm text-[#ffd400] font-extrabold text-xs px-3 py-1 rounded-full uppercase tracking-wider">
+              Align Banknote or Barcode
+            </span>
           </div>
-        )}
-      </div>
+
+          {/* Scanning sweep indicator */}
+          {isScanning && (
+            <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-full border-4 border-white border-t-transparent animate-spin"></div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <CameraPermissionView
+          onRetry={startCamera}
+          onImageSelected={async (base64) => {
+            setIsScanning(true);
+            speak("Scanning banknote from image...", true);
+            try {
+              const res = await fetch("/api/vision/currency", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ imageBase64: base64 }),
+              });
+              const data = await res.json();
+              if (data.error || !data.denomination) {
+                speak("No currency recognized in image.", true);
+                addToast("No currency recognized", "warning");
+                return;
+              }
+              const newItem: ScannedItem = {
+                id: Date.now(),
+                description: data.description,
+                amount: data.denomination,
+                currency: data.currency || "USD",
+                symbol: data.symbol || "$",
+                time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+              };
+              setLastScanned(newItem);
+              setHistory((prev) => [newItem, ...prev]);
+              setRunningTotal((prev) => prev + newItem.amount);
+              speak(`Detected: ${newItem.description}`, true);
+              addToast(newItem.description, "success");
+            } catch {
+              speak("Could not process image.", true);
+            } finally {
+              setIsScanning(false);
+            }
+          }}
+          title="Camera Permission Required"
+          subtitle="Companio needs camera access to recognize banknote denominations and prices."
+        />
+      )}
 
       {/* Central Scan Action Button */}
       <div className="grid grid-cols-3 gap-3">

@@ -26,14 +26,18 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   const addToast = useCallback((message: string, type: ToastType = "info") => {
+    if (!message || !message.trim()) return;
+    const cleanMsg = message.trim();
     const id = Math.random().toString(36).substring(2, 9);
-    setToasts((prev) => [...prev, { id, message, type }]);
 
-    // Auto-dismiss after 4 seconds
+    // Keep only 1 active toast at any time
+    setToasts([{ id, message: cleanMsg, type }]);
+
+    // Auto-dismiss after 2.5 seconds
     setTimeout(() => {
-      removeToast(id);
-    }, 4000);
-  }, [removeToast]);
+      setToasts((prev) => prev.filter((t) => t.id === id ? false : true));
+    }, 2500);
+  }, []);
 
   return (
     <ToastContext.Provider value={{ toasts, addToast, removeToast }}>

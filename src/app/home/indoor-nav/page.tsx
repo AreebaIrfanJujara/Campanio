@@ -131,7 +131,7 @@ export default function IndoorNavPage() {
   };
 
   return (
-    <div className="flex-grow flex flex-col px-margin-edge py-stack-lg gap-6 max-w-2xl mx-auto w-full text-on-surface">
+    <div className="flex-grow flex flex-col px-margin-edge py-stack-lg gap-6 w-full text-on-surface">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-outline-variant pb-3">
         <div>
@@ -150,12 +150,14 @@ export default function IndoorNavPage() {
             Choose Destination
           </h2>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div role="radiogroup" aria-label="Choose Destination" className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {Object.entries(DESTINATIONS).map(([key, item]) => {
               const isSelected = selectedDest === key;
               return (
                 <button
                   key={key}
+                  role="radio"
+                  aria-checked={isSelected}
                   onClick={() => {
                     setSelectedDest(key);
                     speak(`Selected ${item.title}`);
@@ -195,7 +197,14 @@ export default function IndoorNavPage() {
             <span>Step {currentStepIndex + 1} of {route.waypoints.length}</span>
           </div>
 
-          <div className="w-full h-3 bg-surface-container rounded-full overflow-hidden">
+          <div
+            role="progressbar"
+            aria-valuemin={1}
+            aria-valuemax={route.waypoints.length}
+            aria-valuenow={currentStepIndex + 1}
+            aria-label="Route progress"
+            className="w-full h-3 bg-surface-container rounded-full overflow-hidden"
+          >
             <div
               className="h-full bg-primary transition-all duration-300 rounded-full"
               style={{ width: `${((currentStepIndex + 1) / route.waypoints.length) * 100}%` }}
@@ -203,7 +212,12 @@ export default function IndoorNavPage() {
           </div>
 
           {/* Waypoint Direction Card */}
-          <div className="bg-primary text-white rounded-3xl p-8 shadow-xl flex flex-col gap-6 text-center items-center border-2 border-primary-container">
+          <div
+            role="region"
+            aria-live="polite"
+            aria-label="Current Navigation Step"
+            className="bg-primary text-white rounded-3xl p-8 shadow-xl flex flex-col gap-6 text-center items-center border-2 border-primary-container"
+          >
             <div className="w-24 h-24 rounded-full bg-white/20 flex items-center justify-center shadow-inner">
               <span className="material-symbols-outlined text-6xl animate-pulse">
                 {currentWaypoint.icon}

@@ -1,6 +1,10 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&family=Material+Icons&display=block');
 @import "tailwindcss";
 
+/* Make Tailwind's dark: variant respond to the .dark class on <body>, not the OS setting.
+   This keeps dark mode consistent with how .high-contrast already works. */
+@variant dark (&:where(.dark, .dark *));
+
 @theme {
   --color-primary: var(--primary);
   --color-primary-container: var(--primary-container);
@@ -120,33 +124,71 @@
 }
 
 /* High Contrast Mode Styles */
+:root.high-contrast,
+html.high-contrast,
+body.high-contrast,
 .high-contrast {
-  --primary: #ffffff;
-  --primary-container: #000000;
-  --secondary: #ffffff;
+  --primary: #ffd400;
+  --primary-container: #ffd400;
+  --secondary: #ffd400;
   --secondary-container: #000000;
   --tertiary: #ffd400;
   --tertiary-container: #000000;
   --background: #000000;
   --on-background: #ffffff;
-  --surface: #000000;
-  --surface-dim: #1a1a1a;
-  --surface-bright: #000000;
+  --surface: #0a0a0a;
+  --surface-dim: #141414;
+  --surface-bright: #1f1f1f;
   --surface-container-lowest: #000000;
   --surface-container-low: #0a0a0a;
-  --surface-container: #111111;
-  --surface-container-high: #1a1a1a;
-  --surface-container-highest: #222222;
+  --surface-container: #141414;
+  --surface-container-high: #1f1f1f;
+  --surface-container-highest: #292929;
   --on-surface: #ffffff;
-  --on-surface-variant: #eeeeee;
+  --on-surface-variant: #ffffff;
   --inverse-surface: #ffffff;
   --inverse-on-surface: #000000;
-  --outline: #ffffff;
+  --outline: #ffd400;
   --outline-variant: #ffffff;
-  --error: #ff0000;
+  --error: #ff3333;
   --error-container: #000000;
   --on-error: #ffffff;
-  --on-error-container: #ff0000;
+  --on-error-container: #ff3333;
+  --tertiary-fixed: #ffd400;
+}
+
+/* Dark Mode — Material Design 3 dark tonal palette.
+   Elevated surfaces provide rich visual depth and contrast. */
+:root.dark,
+html.dark,
+body.dark,
+.dark {
+  --primary: #a8c7ff;
+  --primary-container: #1943c2;
+  --secondary: #4cded0;
+  --secondary-container: #004d40;
+  --tertiary: #f0d000;
+  --tertiary-container: #4a3d00;
+  --background: #111116;
+  --on-background: #f0eff4;
+  --surface: #1a1a22;
+  --surface-dim: #111116;
+  --surface-bright: #3a383e;
+  --surface-container-lowest: #0c0c10;
+  --surface-container-low: #15151c;
+  --surface-container: #1e1e28;
+  --surface-container-high: #262632;
+  --surface-container-highest: #30303e;
+  --on-surface: #f0eff4;
+  --on-surface-variant: #c6c5d0;
+  --inverse-surface: #f0eff4;
+  --inverse-on-surface: #303034;
+  --outline: #8f909a;
+  --outline-variant: #3a3b4c;
+  --error: #ffb4ab;
+  --error-container: #93000a;
+  --on-error: #690005;
+  --on-error-container: #ffdad6;
   --tertiary-fixed: #ffd400;
 }
 
@@ -173,6 +215,48 @@ body {
   border: 2px solid #ffffff !important;
 }
 
+.high-contrast a:hover,
+.high-contrast button:hover {
+  border-color: #ffd400 !important;
+  outline: 2px solid #ffd400 !important;
+}
+
+.high-contrast a:hover h3,
+.high-contrast button:hover span {
+  color: #ffd400 !important;
+}
+
+/* Ensure colored icon badges are crisp and high-contrast */
+.high-contrast [class*="badgeBg"],
+.high-contrast [class*="bg-indigo-"],
+.high-contrast [class*="bg-teal-"],
+.high-contrast [class*="bg-emerald-"],
+.high-contrast [class*="bg-amber-"],
+.high-contrast [class*="bg-purple-"],
+.high-contrast [class*="bg-blue-"],
+.high-contrast [class*="bg-pink-"],
+.high-contrast [class*="bg-cyan-"],
+.high-contrast [class*="bg-lime-"],
+.high-contrast [class*="bg-violet-"],
+.high-contrast [class*="bg-red-"] {
+  background-color: #181818 !important;
+  border: 2px solid #ffd400 !important;
+}
+
+.high-contrast [class*="text-indigo-"],
+.high-contrast [class*="text-teal-"],
+.high-contrast [class*="text-emerald-"],
+.high-contrast [class*="text-amber-"],
+.high-contrast [class*="text-purple-"],
+.high-contrast [class*="text-blue-"],
+.high-contrast [class*="text-pink-"],
+.high-contrast [class*="text-cyan-"],
+.high-contrast [class*="text-lime-"],
+.high-contrast [class*="text-violet-"],
+.high-contrast [class*="text-red-"] {
+  color: #ffd400 !important;
+}
+
 /* Accessibility Focus Ring Styles */
 :focus-visible {
   outline: 3px solid #ffd400 !important; /* High-visibility yellow outline */
@@ -194,3 +278,33 @@ body {
   0%, 100% { transform: scaleY(0.3); }
   50% { transform: scaleY(1); }
 }
+
+/* ==========================================================================
+   Responsive App Shell Layout Utility Classes
+   ========================================================================== */
+.app-frame-container {
+  width: 100%;
+}
+
+@media (min-width: 768px) {
+  .app-frame-container {
+    max-width: 480px;
+    margin-left: auto;
+    margin-right: auto;
+    margin-top: 1.5rem;
+    margin-bottom: 1.5rem;
+    border-radius: 1.5rem;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--outline-variant);
+    background-color: var(--surface);
+    overflow: hidden;
+  }
+}
+
+.app-wide-container {
+  width: 100%;
+  max-width: 64rem; /* max-w-5xl */
+  margin-left: auto;
+  margin-right: auto;
+}
+

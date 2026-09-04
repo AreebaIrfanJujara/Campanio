@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, SafeAreaView, StatusBar, ScrollView } from 'react-native';
+import React, { useState, useRef } from 'react';
+import { StyleSheet, Text, View, TouchableOpacity, SafeAreaView, StatusBar, ScrollView, PanResponder } from 'react-native';
 import * as Speech from 'expo-speech';
+
+const TABS: ('home' | 'captions' | 'speak' | 'ocr' | 'settings')[] = ['home', 'captions', 'speak', 'ocr', 'settings'];
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<'home' | 'captions' | 'speak' | 'ocr' | 'settings'>('home');
@@ -11,12 +13,39 @@ export default function App() {
     Speech.speak(text, { rate: 1.0, pitch: 1.0 });
   };
 
+  const changeTabWithVoice = (tab: 'home' | 'captions' | 'speak' | 'ocr' | 'settings') => {
+    setCurrentTab(tab);
+    speak(`Navigated to ${tab}`);
+  };
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return Math.abs(gestureState.dx) > 25 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.5;
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        const currentIndex = TABS.indexOf(currentTab);
+        if (gestureState.dx < -50) {
+          // Swiped left -> next tab
+          if (currentIndex < TABS.length - 1) {
+            changeTabWithVoice(TABS[currentIndex + 1]);
+          }
+        } else if (gestureState.dx > 50) {
+          // Swiped right -> prev tab
+          if (currentIndex > 0) {
+            changeTabWithVoice(TABS[currentIndex - 1]);
+          }
+        }
+      },
+    })
+  ).current;
+
   const colors = highContrast
     ? { bg: '#000000', surface: '#121212', text: '#FFFFFF', primary: '#FFD400', border: '#FFFFFF', subText: '#E0E0E0' }
     : { bg: '#0F172A', surface: '#1E293B', text: '#F8FAFC', primary: '#3B82F6', border: '#334155', subText: '#94A3B8' };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.bg }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.bg }]} {...panResponder.panHandlers}>
       <StatusBar barStyle="light-content" />
 
       {/* Header */}

@@ -28,6 +28,7 @@ export default function CaptionsPage() {
   
   const [isTranscribing, setIsTranscribing] = useState<boolean>(true);
   const [captions, setCaptions] = useState<CaptionEntry[]>([]);
+  const [interimText, setInterimText] = useState<string>("");
   const [status, setStatus] = useState<string>("Initializing captions...");
   const [fontSizeScale, setFontSizeScale] = useState<number>(24);
   const [soundEvents, setSoundEvents] = useState<SoundEvent[]>([]);
@@ -36,36 +37,14 @@ export default function CaptionsPage() {
   // Realtime multi-device sync state
   const [isBroadcastActive, setIsBroadcastActive] = useState<boolean>(false);
   const [roomId, setRoomId] = useState<string>("");
-  const [sttSource, setSttSource] = useState<string>("Google Cloud STT / Web Speech");
+  const [sttSource, setSttSource] = useState<string>("Web Speech / Whisper STT");
   
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const mockTimeoutRef = useRef<any>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const soundEventIntervalRef = useRef<any>(null);
   const audioStreamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-
-  const mockPhrases = [
-    { text: "Hello there! I am Dr. John. How can I help you today?", speaker: "Speaker 1" },
-    { text: "You should take the elevator to the 3rd floor, it's on your right.", speaker: "Speaker 2" },
-    { text: "Please wait here, the nurse will see you at 2 PM.", speaker: "Speaker 1" },
-    { text: "Go straight ahead about 20 steps, then turn left.", speaker: "Speaker 3" },
-    { text: "Alright, have a wonderful and safe afternoon!", speaker: "Speaker 2" },
-  ];
-
-  const possibleSoundEvents = [
-    { label: "Door knock detected", icon: "door_front" },
-    { label: "Alarm / beep detected", icon: "alarm" },
-    { label: "Phone ringing nearby", icon: "phone_ring" },
-    { label: "Footsteps approaching", icon: "footsteps" },
-    { label: "Glass clinking", icon: "wine_bar" },
-  ];
-  
-  const [mockIndex, setMockIndex] = useState(0);
 
   // Subscribe to realtime broadcast captions from other devices
   useEffect(() => {
@@ -84,20 +63,17 @@ export default function CaptionsPage() {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [captions]);
+  }, [captions, interimText]);
 
   useEffect(() => {
     if (isTranscribing) {
       startTranscribing();
-      startSoundEventDetection();
     } else {
       stopTranscribing();
-      stopSoundEventDetection();
     }
 
     return () => {
       stopTranscribing();
-      stopSoundEventDetection();
     };
   }, [isTranscribing]);
 
@@ -118,81 +94,13 @@ export default function CaptionsPage() {
     }
   };
 
-  const startSoundEventDetection = () => {
-    const triggerRandom = () => {
-      if (!isTranscribing) return;
-      const delay = Math.random() * 15000 + 15000;
-      soundEventIntervalRef.current = setTimeout(() => {
-        const event = possibleSoundEvents[Math.floor(Math.random() * possibleSoundEvents.length)];
-        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        const newEvent: SoundEvent = { id: Date.now(), ...event, time: timeStr };
-        
-        setSoundEvents((prev) => [...prev, newEvent]);
-        setShowSoundAlert(newEvent);
-        
-        try {
-          const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-          const osc = audioCtx.createOscillator();
-          const gain = audioCtx.createGain();
-          osc.type = "triangle";
-          osc.frequency.setValueAtTime(1200, audioCtx.currentTime);
-          osc.frequency.setValueAtTime(800, audioCtx.currentTime + 0.1);
-          gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-          osc.connect(gain);
-          gain.connect(audioCtx.destination);
-          osc.start();
-          osc.stop(audioCtx.currentTime + 0.2);
-        } catch {}
-        
-        speak(`Sound alert: ${event.label}`, true);
-        setTimeout(() => setShowSoundAlert(null), 4000);
-        triggerRandom();
-      }, delay);
-    };
-    triggerRandom();
-  };
-
-  const stopSoundEventDetection = () => {
-    if (soundEventIntervalRef.current) {
-      clearTimeout(soundEventIntervalRef.current);
-      soundEventIntervalRef.current = null;
-    }
-  };
-
   const startTranscribing = async () => {
-    // Start microphone stream & real MediaRecorder for server-side Cloud STT
-    try {
-      if (typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia) {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        audioStreamRef.current = stream;
-        
-        let mimeType = "audio/webm;codecs=opus";
-        if (typeof MediaRecorder !== "undefined") {
-          if (!MediaRecorder.isTypeSupported(mimeType)) {
-            mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
-          }
-          const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-          audioChunksRef.current = [];
-          recorder.ondataavailable = (event) => {
-            if (event.data && event.data.size > 0) {
-              audioChunksRef.current.push(event.data);
-            }
-          };
-          recorder.start(1000); // 1-second timeslices
-          mediaRecorderRef.current = recorder;
-        }
-      }
-    } catch (micErr) {
-      console.warn("MediaRecorder mic access warning:", micErr);
-    }
-
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SR) {
-      setStatus("Captions running (Diarization Simulation)");
-      setSttSource("Simulated STT");
-      runMockCaptioning();
+      setStatus("Web Speech API not supported in this browser.");
+      setSttSource("Microphone STT");
       return;
     }
 
@@ -203,55 +111,36 @@ export default function CaptionsPage() {
       recognition.lang = "en-US";
 
       recognition.onstart = () => {
-        setStatus("Diarization active. Listening to multiple speakers...");
-        setSttSource(isOnline ? "Google Cloud STT Diarization" : "On-Device Web Speech");
-        addToast("Captions & Diarization active", "success");
+        setStatus("Listening for speech in real-time...");
+        setSttSource(isOnline ? "Groq Whisper + Live Web Speech" : "On-Device Web Speech");
       };
 
       recognition.onerror = (event: { error: string }) => {
-        console.error("Speech recognition error:", event.error);
-        setStatus(`Error: ${event.error}. Fallback mock activated.`);
-        runMockCaptioning();
+        console.warn("Speech recognition notice:", event.error);
+        if (event.error !== "no-speech") {
+          setStatus(`Status: ${event.error}.`);
+        }
       };
 
-      recognition.onresult = async (event: { resultIndex: number; results: SpeechRecognitionResultList }) => {
+      recognition.onresult = (event: { resultIndex: number; results: SpeechRecognitionResultList }) => {
         let finalTrans = "";
+        let interimTrans = "";
+        
         for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            finalTrans += event.results[i][0].transcript;
+          const item = event.results[i];
+          if (item.isFinal) {
+            finalTrans += item[0].transcript;
+          } else {
+            interimTrans += item[0].transcript;
           }
         }
+
+        setInterimText(interimTrans);
+
         if (finalTrans.trim()) {
-          // When online, extract real recorded audio chunks and send to Cloud STT
-          let speaker = Math.random() > 0.5 ? "Speaker 1" : "Speaker 2";
-          if (isOnline && audioChunksRef.current.length > 0) {
-            try {
-              const recordedChunks = [...audioChunksRef.current];
-              audioChunksRef.current = []; // flush for next utterance
-              const audioBlob = new Blob(recordedChunks, {
-                type: mediaRecorderRef.current?.mimeType || "audio/webm",
-              });
-              
-              // Convert real audio blob to base64
-              const arrayBuffer = await audioBlob.arrayBuffer();
-              const bytes = new Uint8Array(arrayBuffer);
-              let binary = "";
-              for (let i = 0; i < bytes.byteLength; i++) {
-                binary += String.fromCharCode(bytes[i]);
-              }
-              const realAudioBase64 = btoa(binary);
-
-              if (realAudioBase64.length > 50) {
-                const sttResult = await CompanioAPI.transcribeAudio(realAudioBase64, "en-US");
-                if (sttResult.speaker) speaker = sttResult.speaker;
-              }
-            } catch (sttErr) {
-              console.warn("STT Diarization processing error:", sttErr);
-            }
-          }
-
-          const newCaption: CaptionEntry = { text: finalTrans.trim(), speaker };
+          const newCaption: CaptionEntry = { text: finalTrans.trim(), speaker: "Speaker 1" };
           setCaptions((prev) => [...prev, newCaption]);
+          setInterimText("");
           wearableBridge.triggerHaptic("caption_alert");
 
           if (isBroadcastActive) {
@@ -260,12 +149,20 @@ export default function CaptionsPage() {
         }
       };
 
+      recognition.onend = () => {
+        // Automatically restart if still active
+        if (recognitionRef.current && isTranscribing) {
+          try {
+            recognition.start();
+          } catch {}
+        }
+      };
+
       recognitionRef.current = recognition;
       recognition.start();
     } catch (e) {
       console.error(e);
-      setStatus("Microphone access failed. Simulated diarization active.");
-      runMockCaptioning();
+      setStatus("Microphone access failed.");
     }
   };
 
@@ -290,25 +187,7 @@ export default function CaptionsPage() {
       } catch {}
       recognitionRef.current = null;
     }
-    if (mockTimeoutRef.current) {
-      clearTimeout(mockTimeoutRef.current);
-    }
     setStatus("Captions paused.");
-  };
-
-  const runMockCaptioning = () => {
-    if (mockTimeoutRef.current) clearTimeout(mockTimeoutRef.current);
-
-    const delay = Math.random() * 4000 + 4000;
-    mockTimeoutRef.current = setTimeout(() => {
-      const item = mockPhrases[mockIndex];
-      setCaptions((prev) => [...prev, item]);
-      if (isBroadcastActive) {
-        realtimeCaptions.broadcastCaption({ text: item.text, speaker: "them" });
-      }
-      setMockIndex((prev) => (prev + 1) % mockPhrases.length);
-      runMockCaptioning();
-    }, delay);
   };
 
   const handleToggle = () => {
@@ -372,7 +251,7 @@ export default function CaptionsPage() {
   };
 
   return (
-    <div className="flex-grow flex flex-col px-margin-edge py-stack-lg gap-6 max-w-3xl mx-auto w-full h-[calc(100vh-140px)]">
+    <div className="flex-grow flex flex-col px-margin-edge py-stack-lg gap-6 w-full h-full min-h-0">
       
       {/* Header */}
       <div className="flex items-center justify-between border-b border-outline-variant pb-3 gap-2">
@@ -454,50 +333,69 @@ export default function CaptionsPage() {
         </div>
       )}
 
-      {/* Caption View Box Container */}
-      <div className="flex-grow bg-surface-container-lowest border-2 border-outline-variant rounded-2xl p-6 shadow-inner flex flex-col justify-between overflow-hidden">
+      {/* Caption View Box Container — Expanded height and responsive width */}
+      <div className="flex-grow min-h-[460px] bg-surface-container-lowest border-2 border-outline-variant rounded-3xl p-6 shadow-inner flex flex-col justify-between overflow-hidden">
         <div ref={scrollRef} className="flex-grow overflow-y-auto flex flex-col gap-6 pr-2">
-          {captions.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-center text-zinc-400 gap-4">
-              <span className="material-symbols-outlined text-6xl text-zinc-500">closed_caption_disabled</span>
-              <p className="text-xl max-w-sm">No captions recorded yet. Speak near your microphone to begin.</p>
+          {captions.length === 0 && !interimText ? (
+            <div className="h-full flex flex-col items-center justify-center text-center text-on-surface-variant gap-4 py-12">
+              <span className="material-symbols-outlined text-7xl text-outline animate-pulse">closed_caption</span>
+              <p className="text-2xl font-bold max-w-md text-on-surface">Listening for speech...</p>
+              <p className="text-base max-w-sm text-on-surface-variant">Speak near your microphone to see instant real-time captions here.</p>
             </div>
           ) : (
-            captions.map((cap, i) => {
-              const isYou = cap.speaker === "You" || cap.speaker === "you";
-              return (
-                <div
-                  key={i}
-                  className={`flex w-full ${isYou ? "justify-end" : "justify-start"} animate-slide-up`}
-                >
+            <>
+              {captions.map((cap, i) => {
+                const isYou = cap.speaker === "You" || cap.speaker === "you";
+                return (
                   <div
-                    className={`max-w-[85%] rounded-3xl p-5 shadow-sm leading-relaxed ${
-                      isYou
-                        ? "bg-primary-container text-white rounded-br-none border-2 border-primary/20"
-                        : "bg-surface-container-high text-on-surface rounded-bl-none border-2 border-outline-variant"
-                    } font-bold`}
+                    key={i}
+                    className={`flex w-full ${isYou ? "justify-end" : "justify-start"} animate-slide-up`}
+                  >
+                    <div
+                      className={`max-w-[88%] rounded-3xl p-5 shadow-sm leading-relaxed ${
+                        isYou
+                          ? "bg-primary-container text-white rounded-br-none border-2 border-primary/20"
+                          : "bg-surface-container-high text-on-surface rounded-bl-none border-2 border-outline-variant"
+                      } font-bold`}
+                      style={{ fontSize: `${fontSizeScale}px` }}
+                    >
+                      <div className="text-xs uppercase tracking-wider font-black mb-2 flex items-center justify-between gap-2">
+                        <span className={`px-2.5 py-0.5 rounded-full border text-[11px] font-extrabold ${getSpeakerColor(cap.speaker)}`}>
+                          {cap.speaker}
+                        </span>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(cap.text);
+                            addToast("Caption copied", "success");
+                          }}
+                          className="opacity-40 hover:opacity-100 cursor-pointer"
+                          aria-label="Copy this caption"
+                        >
+                          <span className="material-symbols-outlined text-sm">content_copy</span>
+                        </button>
+                      </div>
+                      <div>{highlightKeyPhrases(cap.text)}</div>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Instant Real-Time Interim Transcript Bubble */}
+              {interimText && (
+                <div className="flex w-full justify-start animate-fade-in">
+                  <div
+                    className="max-w-[88%] rounded-3xl p-5 bg-primary/10 border-2 border-dashed border-primary text-on-surface font-bold leading-relaxed shadow-sm"
                     style={{ fontSize: `${fontSizeScale}px` }}
                   >
-                    <div className="text-xs uppercase tracking-wider font-black mb-2 flex items-center justify-between gap-2">
-                      <span className={`px-2.5 py-0.5 rounded-full border text-[11px] font-extrabold ${getSpeakerColor(cap.speaker)}`}>
-                        {cap.speaker}
-                      </span>
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(cap.text);
-                          addToast("Caption copied", "success");
-                        }}
-                        className="opacity-40 hover:opacity-100 cursor-pointer"
-                        aria-label="Copy this caption"
-                      >
-                        <span className="material-symbols-outlined text-sm">content_copy</span>
-                      </button>
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-primary animate-ping"></span>
+                      <span className="text-xs uppercase font-black tracking-wider text-primary">Live Transcribing...</span>
                     </div>
-                    <div>{highlightKeyPhrases(cap.text)}</div>
+                    <p className="opacity-90">{interimText}</p>
                   </div>
                 </div>
-              );
-            })
+              )}
+            </>
           )}
         </div>
       </div>

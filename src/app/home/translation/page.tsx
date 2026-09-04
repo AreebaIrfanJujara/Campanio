@@ -118,13 +118,18 @@ export default function TranslationPage() {
       // Capture frame from video
       let base64: string | null = null;
       if (videoRef.current && hasCamera) {
+        const video = videoRef.current;
+        const vw = video.videoWidth || 640;
+        const vh = video.videoHeight || 480;
+        const maxDim = 640;
+        const scale = Math.min(1, maxDim / Math.max(vw, vh));
         const canvas = document.createElement("canvas");
-        canvas.width = videoRef.current.videoWidth || 640;
-        canvas.height = videoRef.current.videoHeight || 480;
+        canvas.width = Math.round(vw * scale);
+        canvas.height = Math.round(vh * scale);
         const ctx = canvas.getContext("2d");
         if (ctx) {
-          ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-          base64 = canvas.toDataURL("image/jpeg", 0.85);
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          base64 = canvas.toDataURL("image/jpeg", 0.7);
         }
       }
 
@@ -146,46 +151,28 @@ export default function TranslationPage() {
       addToast(res.isOffline ? "Scanned & translated (offline)" : "Successfully scanned & translated", "success");
     } catch (err) {
       console.error(err);
-      // Fallback mock
-      const mockScanned = "Caution: Wet Floor. Please use stairs in case of emergency.";
-      setOcrText(mockScanned);
-      try {
-        const res = await CompanioAPI.translate(mockScanned, targetLang);
-        setOcrTranslation(res.translatedText);
-        speak(`Scanned and translated: ${res.translatedText}`, true);
-        addToast("Scanned & translated", "success");
-      } catch {
-        addToast("Translation failed", "error");
-      }
+      addToast("Could not detect text from camera view. Please adjust angle.", "error");
     } finally {
       setLoading(false);
     }
   };
 
   const handleVoiceListen = () => {
+    if (isListening) {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch {}
+      }
+      setIsListening(false);
+      return;
+    }
+
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      // Mock voice input flow
-      setIsListening(true);
-      setVoiceText("");
-      setVoiceTranslation("");
-      speak("Listening to your voice...", true);
-
-      setTimeout(async () => {
-        const mockVoice = "Where is the pharmacy store located?";
-        setVoiceText(mockVoice);
-        setIsListening(false);
-        try {
-          const res = await CompanioAPI.translate(mockVoice, targetLang);
-          setVoiceTranslation(res.translatedText);
-          speak(res.translatedText, true);
-          addToast("Translated and read aloud", "success");
-        } catch (e) {
-          console.error(e);
-        }
-      }, 3000);
+      addToast("Speech recognition not supported in this browser. Please use text mode.", "warning");
       return;
     }
 
@@ -193,32 +180,55 @@ export default function TranslationPage() {
       const rec = new SpeechRecognition();
       rec.lang = "en-US";
       rec.continuous = false;
-      rec.interimResults = false;
+      rec.interimResults = true;
 
       rec.onstart = () => {
         setIsListening(true);
         setVoiceText("");
         setVoiceTranslation("");
-        addToast("Speak now", "info");
+        addToast("Listening... Speak now", "info");
       };
 
-      rec.onerror = () => {
+      rec.onerror = (e: any) => {
+        console.warn("Translation mic notice:", e);
         setIsListening(false);
-        addToast("Microphone error", "error");
+        if (e.error !== "no-speech") {
+          addToast(`Microphone: ${e.error}`, "warning");
+        }
       };
 
       rec.onresult = async (event: any) => {
-        const text = event.results[0][0].transcript;
-        setVoiceText(text);
-        speak(`Heard: ${text}. Translating now.`, true);
-        
-        try {
-          const res = await CompanioAPI.translate(text, targetLang);
-          setVoiceTranslation(res.translatedText);
-          speak(res.translatedText, true);
-          addToast("Translation complete", "success");
-        } catch (e) {
-          console.error(e);
+        let finalTrans = "";
+        let interimTrans = "";
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTrans += event.results[i][0].transcript;
+          } else {
+            interimTrans += event.results[i][0].transcript;
+          }
+        }
+
+        const currentSpoken = (finalTrans || interimTrans).trim();
+        if (currentSpoken) {
+          setVoiceText(currentSpoken);
+        }
+
+        if (finalTrans.trim()) {
+          setIsListening(false);
+          speak(`Heard: ${finalTrans}. Translating.`, true);
+          setLoading(true);
+          try {
+            const res = await CompanioAPI.translate(finalTrans.trim(), targetLang);
+            setVoiceTranslation(res.translatedText);
+            speak(res.translatedText, true);
+            addToast("Translation complete", "success");
+            logActivity("translation", `Voice translated: ${finalTrans.slice(0, 30)}...`, "mic", `to ${targetLang}`);
+          } catch (e) {
+            console.error(e);
+            addToast("Translation failed", "error");
+          } finally {
+            setLoading(false);
+          }
         }
       };
 
@@ -235,7 +245,7 @@ export default function TranslationPage() {
   };
 
   return (
-    <div className="flex-grow flex flex-col px-margin-edge py-stack-lg gap-6 max-w-2xl mx-auto w-full">
+    <div className="flex-grow flex flex-col px-margin-edge py-stack-lg gap-6 w-full">
       {/* Title */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
@@ -360,8 +370,8 @@ export default function TranslationPage() {
               {hasCamera ? (
                 <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
               ) : (
-                <div className="text-center p-6 text-zinc-400">
-                  <span className="material-symbols-outlined text-6xl mb-2 text-zinc-600">videocam_off</span>
+                <div className="text-center p-6 text-on-surface-variant">
+                  <span className="material-symbols-outlined text-6xl mb-2 text-outline">videocam_off</span>
                   <p className="text-lg font-semibold">Loading camera view...</p>
                 </div>
               )}

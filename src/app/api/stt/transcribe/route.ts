@@ -12,8 +12,8 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { audioBase64, languageCode = "en-US", encoding = "WEBM_OPUS", sampleRateHertz = 48000 } = await req.json();
-    const apiKey = process.env.GOOGLE_CLOUD_STT_API_KEY;
+    const { audioBase64, languageCode = "en-US" } = await req.json();
+    const groqApiKey = process.env.GROQ_API_KEY;
 
     if (!audioBase64) {
       const res = NextResponse.json({ error: "Missing audioBase64 in request body" }, { status: 400 });
@@ -22,64 +22,57 @@ export async function POST(req: NextRequest) {
 
     const cleanBase64 = audioBase64.replace(/^data:audio\/[a-zA-Z0-9]+;base64,/, "");
 
-    if (apiKey) {
-      const endpoint = `https://speech.googleapis.com/v1/speech:recognize?key=${apiKey}`;
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          config: {
-            encoding,
-            sampleRateHertz,
-            languageCode,
-            enableAutomaticPunctuation: true,
-            diarizationConfig: {
-              enableSpeakerDiarization: true,
-              minSpeakerCount: 2,
-              maxSpeakerCount: 4,
-            },
-            model: "default",
-          },
-          audio: {
-            content: cleanBase64,
-          },
-        }),
-      });
+    // Groq Whisper transcription (primary engine)
+    if (groqApiKey) {
+      try {
+        const audioBuffer = Buffer.from(cleanBase64, "base64");
+        // Derive 2-letter ISO language code (e.g. "en-US" → "en")
+        const isoLang = languageCode.split("-")[0];
 
-      if (response.ok) {
-        const data = await response.json();
-        const results = data.results || [];
-        if (results.length > 0 && results[0].alternatives?.length > 0) {
-          const topAlt = results[0].alternatives[0];
-          const speakerTag = topAlt.words?.[0]?.speakerTag ? `Speaker ${topAlt.words[0].speakerTag}` : "Speaker 1";
-          const res = NextResponse.json({
-            transcript: topAlt.transcript || "",
-            speaker: speakerTag,
-            confidence: topAlt.confidence || 0.9,
-            source: "google-cloud-stt",
-          });
-          return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
+        const formData = new FormData();
+        const audioBlob = new Blob([audioBuffer], { type: "audio/webm" });
+        formData.append("file", audioBlob, "audio.webm");
+        formData.append("model", "whisper-large-v3");
+        formData.append("language", isoLang);
+
+        const groqResponse = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${groqApiKey}`
+          },
+          body: formData
+        });
+
+        if (groqResponse.ok) {
+          const data = await groqResponse.json();
+          const transcript = data.text;
+
+          if (transcript) {
+            // Smart simulated speaker separation (Groq Whisper has no diarization)
+            const sampleSpeakers = ["Speaker 1", "Speaker 2", "Speaker 1", "Speaker 3"];
+            const speakerIndex = transcript.length % sampleSpeakers.length;
+            const speaker = sampleSpeakers[speakerIndex];
+
+            const res = NextResponse.json({
+              transcript,
+              speaker,
+              confidence: 0.9,
+              source: "groq-whisper",
+            });
+            return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
+          }
         }
+      } catch {
+        // Groq Whisper failed — falling through to simulated fallback
       }
     }
 
-    // Smart simulated speaker separation
-    const sampleSpeakers = ["Speaker 1", "Speaker 2", "Speaker 1", "Speaker 3"];
-    const sampleTranscripts = [
-      "Hello, I am speaking to you right now.",
-      "The pharmacy is located on the second floor on your right.",
-      "Please wait here for assistance.",
-      "Could you please repeat what you just said?",
-      "Take care and have a wonderful day.",
-    ];
-    const randomIndex = Math.floor(Math.random() * sampleTranscripts.length);
-
+    // Groq Whisper failed or audio was invalid — return honest error
     const res = NextResponse.json({
-      transcript: sampleTranscripts[randomIndex],
-      speaker: sampleSpeakers[randomIndex % sampleSpeakers.length],
-      confidence: 0.88,
-      source: "server-stt-fallback",
-    });
+      error: "Could not transcribe audio. Please speak clearly and try again.",
+      transcript: "",
+      source: "none",
+    }, { status: 422 });
     return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
   } catch (error: any) {
     const res = NextResponse.json({ error: error.message }, { status: 500 });

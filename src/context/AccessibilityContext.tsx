@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 
 export type PresetType = "visual" | "hearing" | "motor" | "standard";
 
@@ -14,11 +14,12 @@ export type CaptionSize = "sm" | "md" | "lg";
 const STORAGE_KEY = "companio_accessibility_settings";
 
 interface PersistedState {
-  theme: "standard" | "high-contrast";
+  theme: "standard" | "dark" | "high-contrast";
   voiceVolume: number;
   speechRate: number;
   speechPitch: number;
   voiceGuidanceActive: boolean;
+  wakeWordActive: boolean;
   userProfile: UserProfile;
   captionSize: CaptionSize;
   reducedMotion: boolean;
@@ -26,12 +27,19 @@ interface PersistedState {
   ocrAutoTranslate: boolean;
 }
 
+// Global reference to prevent garbage collection of active utterance and manage audio in Chromium/WebKit
+let activeUtterance: SpeechSynthesisUtterance | null = null;
+let activeAudioElement: HTMLAudioElement | null = null;
+let speechDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+let speechSessionCount = 0;
+
 const defaultState: PersistedState = {
   theme: "standard",
-  voiceVolume: 0.8,
+  voiceVolume: 0.9,
   speechRate: 1.0,
   speechPitch: 1.0,
-  voiceGuidanceActive: false,
+  voiceGuidanceActive: true,
+  wakeWordActive: false,
   userProfile: { name: "Alex", preset: "standard" },
   captionSize: "md",
   reducedMotion: false,
@@ -54,8 +62,9 @@ function loadPersistedState(): PersistedState {
 }
 
 interface AccessibilityContextType {
-  theme: "standard" | "high-contrast";
+  theme: "standard" | "dark" | "high-contrast";
   toggleTheme: () => void;
+  setThemeMode: (mode: "standard" | "dark" | "high-contrast") => void;
   voiceVolume: number;
   setVoiceVolume: (v: number) => void;
   speechRate: number;
@@ -64,6 +73,8 @@ interface AccessibilityContextType {
   setSpeechPitch: (p: number) => void;
   voiceGuidanceActive: boolean;
   setVoiceGuidanceActive: (active: boolean) => void;
+  wakeWordActive: boolean;
+  setWakeWordActive: (active: boolean) => void;
   userProfile: UserProfile;
   setUserProfile: (profile: UserProfile) => void;
   applyPreset: (preset: PresetType) => void;
@@ -72,6 +83,9 @@ interface AccessibilityContextType {
   isSpeaking: boolean;
   isAssistantOpen: boolean;
   setIsAssistantOpen: (open: boolean) => void;
+  isSidebarOpen: boolean;
+  setIsSidebarOpen: (open: boolean) => void;
+  toggleSidebar: () => void;
   captionSize: CaptionSize;
   setCaptionSize: (size: CaptionSize) => void;
   reducedMotion: boolean;
@@ -91,9 +105,11 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
   const [speechRate, setSpeechRate] = useState<number>(defaultState.speechRate);
   const [speechPitch, setSpeechPitch] = useState<number>(defaultState.speechPitch);
   const [voiceGuidanceActive, setVoiceGuidanceActive] = useState<boolean>(defaultState.voiceGuidanceActive);
+  const [wakeWordActive, setWakeWordActive] = useState<boolean>(defaultState.wakeWordActive);
   const [userProfile, setUserProfile] = useState<UserProfile>(defaultState.userProfile);
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
   const [isAssistantOpen, setIsAssistantOpen] = useState<boolean>(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
   const [captionSize, setCaptionSize] = useState<CaptionSize>(defaultState.captionSize);
   const [reducedMotion, setReducedMotion] = useState<boolean>(defaultState.reducedMotion);
   const [ttsVoice, setTtsVoice] = useState<string>(defaultState.ttsVoice);
@@ -107,6 +123,7 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
     setSpeechRate(saved.speechRate);
     setSpeechPitch(saved.speechPitch);
     setVoiceGuidanceActive(saved.voiceGuidanceActive);
+    setWakeWordActive(saved.wakeWordActive ?? false);
     setUserProfile(saved.userProfile);
     setCaptionSize(saved.captionSize);
     setReducedMotion(saved.reducedMotion);
@@ -124,6 +141,7 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
       speechRate,
       speechPitch,
       voiceGuidanceActive,
+      wakeWordActive,
       userProfile,
       captionSize,
       reducedMotion,
@@ -135,17 +153,24 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
     } catch (e) {
       console.error("Failed to persist accessibility state", e);
     }
-  }, [initialized, theme, voiceVolume, speechRate, speechPitch, voiceGuidanceActive, userProfile, captionSize, reducedMotion, ttsVoice, ocrAutoTranslate]);
+  }, [initialized, theme, voiceVolume, speechRate, speechPitch, voiceGuidanceActive, wakeWordActive, userProfile, captionSize, reducedMotion, ttsVoice, ocrAutoTranslate]);
 
-  // Apply theme to document body
+  // Apply theme to document root and body — each theme class is managed independently
   useEffect(() => {
     if (!initialized) return;
+    const root = document.documentElement;
     const body = document.body;
-    if (theme === "high-contrast") {
+    // Always reset both theme classes first, then apply the correct one
+    root.classList.remove("dark", "high-contrast");
+    body.classList.remove("dark", "high-contrast");
+    if (theme === "dark") {
+      root.classList.add("dark");
+      body.classList.add("dark");
+    } else if (theme === "high-contrast") {
+      root.classList.add("high-contrast");
       body.classList.add("high-contrast");
-    } else {
-      body.classList.remove("high-contrast");
     }
+    // "standard" → no class (inherits :root token values)
   }, [theme, initialized]);
 
   // Apply reduced motion to document body
@@ -169,9 +194,39 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, []);
 
+  // 3-way cycle: standard → dark → high-contrast → standard
   const toggleTheme = () => {
-    setTheme((prev) => (prev === "standard" ? "high-contrast" : "standard"));
+    setTheme((prev) => {
+      if (prev === "standard") return "dark";
+      if (prev === "dark") return "high-contrast";
+      return "standard";
+    });
   };
+
+  // Explicit setter (used by settings page segmented control)
+  const setThemeMode = (mode: "standard" | "dark" | "high-contrast") => {
+    setTheme(mode);
+  };
+
+  const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
+
+  // Cache voices and listen for voiceschanged event (common async load in Chromium)
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+
+    const updateVoices = () => {
+      const v = window.speechSynthesis.getVoices() || [];
+      if (v.length > 0) {
+        voicesRef.current = v;
+      }
+    };
+
+    updateVoices();
+    window.speechSynthesis.addEventListener("voiceschanged", updateVoices);
+    return () => {
+      window.speechSynthesis.removeEventListener("voiceschanged", updateVoices);
+    };
+  }, []);
 
   const applyPreset = (preset: PresetType) => {
     setUserProfile((prev) => ({ ...prev, preset }));
@@ -181,41 +236,173 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
       speak("Visual accessibility profile activated. High contrast mode is enabled, and voice guidance is active.", true);
     } else if (preset === "hearing") {
       setTheme("standard");
-      setVoiceGuidanceActive(false);
       speak("Hearing accessibility profile activated. Subtitles and visual cues are prioritized.", true);
     } else if (preset === "motor") {
       setTheme("standard");
-      setVoiceGuidanceActive(false);
       speak("Motor accessibility profile activated. Touch targets are expanded for easier interaction.", true);
     } else {
       setTheme("standard");
-      setVoiceGuidanceActive(false);
       speak("Standard accessibility profile activated.", true);
     }
   };
 
   const speak = useCallback((text: string, force = false) => {
-    if (typeof window === "undefined" || !window.speechSynthesis) return;
+    if (typeof window === "undefined") return;
 
     if (!voiceGuidanceActive && !force) return;
 
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.volume = voiceVolume;
-    utterance.rate = speechRate;
-    utterance.pitch = speechPitch;
-    
-    utterance.onstart = () => setIsSpeaking(true);
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
+    const cleanText = text.trim();
+    if (!cleanText) return;
 
-    window.speechSynthesis.speak(utterance);
-  }, [voiceGuidanceActive, voiceVolume, speechRate, speechPitch]);
+    if (speechDebounceTimer) {
+      clearTimeout(speechDebounceTimer);
+    }
+
+    // Cancel any active speech or audio immediately to prevent echoing or repetition
+    stopSpeaking();
+
+    // Increment speech session token so stale async calls are ignored
+    const thisSessionId = ++speechSessionCount;
+
+    // Create audio instance synchronously on user click gesture
+    const audio = new Audio();
+    audio.volume = 1.0;
+    activeAudioElement = audio;
+
+    // Use high-fidelity natural audio speech via backend endpoint
+    (async () => {
+      try {
+        const res = await fetch("/api/tts/speak", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: cleanText })
+        });
+        
+        // If another speak() was called while fetching, abort this one
+        if (thisSessionId !== speechSessionCount) return;
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.audioUrl && thisSessionId === speechSessionCount) {
+            audio.src = data.audioUrl;
+            setIsSpeaking(true);
+            audio.onended = () => {
+              if (activeAudioElement === audio) {
+                setIsSpeaking(false);
+                activeAudioElement = null;
+              }
+            };
+            audio.onerror = () => {
+              if (activeAudioElement === audio) {
+                setIsSpeaking(false);
+                activeAudioElement = null;
+                fallbackWebSpeech(cleanText, thisSessionId);
+              }
+            };
+            try {
+              const playPromise = audio.play();
+              if (playPromise !== undefined) {
+                playPromise.catch((err) => {
+                  console.warn("Audio play promise catch:", err);
+                  fallbackWebSpeech(cleanText, thisSessionId);
+                });
+              }
+              return;
+            } catch {
+              fallbackWebSpeech(cleanText, thisSessionId);
+              return;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("Natural TTS endpoint fallback:", e);
+      }
+
+      // Offline / Network failure fallback: on-device Web Speech API
+      if (thisSessionId === speechSessionCount) {
+        fallbackWebSpeech(cleanText, thisSessionId);
+      }
+    })();
+
+    function fallbackWebSpeech(phrase: string, sessionId: number) {
+      if (!window.speechSynthesis || sessionId !== speechSessionCount) return;
+      try {
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+        }
+      } catch {}
+
+      try {
+        const utterance = new SpeechSynthesisUtterance(phrase);
+        utterance.volume = 1.0; // Full loudness
+        utterance.rate = Math.max(0.5, Math.min(2.0, speechRate));
+        utterance.pitch = Math.max(0.5, Math.min(2.0, speechPitch));
+
+        let targetLang = "en-US";
+        if (/[\u0600-\u06FF]/.test(phrase) || /\b(yaar|baat|suno|kya|hai|karo|shukriya|nahin|nahi|apka|mera|kaise|theek|madad)\b/i.test(phrase)) {
+          targetLang = "ur-PK";
+        } else if (/[\u0900-\u097F]/.test(phrase)) {
+          targetLang = "hi-IN";
+        } else if (/[\u3040-\u30ff]/.test(phrase)) {
+          targetLang = "ja-JP";
+        } else if (/[\u4e00-\u9fff]/.test(phrase)) {
+          targetLang = "zh-CN";
+        } else if (/[\u00C0-\u017F]/.test(phrase)) {
+          targetLang = "es-ES";
+        }
+        utterance.lang = targetLang;
+
+        const voices: SpeechSynthesisVoice[] = voicesRef.current.length > 0 ? voicesRef.current : (window.speechSynthesis.getVoices?.() || []);
+        if (voices.length > 0) {
+          const langVoice = voices.find((v) => v.lang.toLowerCase().startsWith(targetLang.split("-")[0].toLowerCase()));
+          if (langVoice) {
+            utterance.voice = langVoice;
+          }
+        }
+
+        utterance.onstart = () => {
+          if (sessionId === speechSessionCount) setIsSpeaking(true);
+        };
+        utterance.onend = () => {
+          setIsSpeaking(false);
+          activeUtterance = null;
+        };
+        utterance.onerror = (err) => {
+          console.warn("speechSynthesis error:", err);
+          setIsSpeaking(false);
+          activeUtterance = null;
+        };
+
+        activeUtterance = utterance;
+        (window as any).__companioUtterance = utterance;
+
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+        }
+        window.speechSynthesis.speak(utterance);
+      } catch (err) {
+        console.warn("speechSynthesis speak error", err);
+      }
+    }
+  }, [voiceGuidanceActive, speechRate, speechPitch]);
 
   const stopSpeaking = () => {
-    if (typeof window !== "undefined" && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-      setIsSpeaking(false);
+    if (typeof window !== "undefined") {
+      if (activeAudioElement) {
+        try {
+          activeAudioElement.pause();
+          activeAudioElement.currentTime = 0;
+        } catch {}
+        activeAudioElement = null;
+      }
+      if (window.speechSynthesis) {
+        if (speechDebounceTimer) clearTimeout(speechDebounceTimer);
+        try {
+          window.speechSynthesis.cancel();
+        } catch {}
+        activeUtterance = null;
+        setIsSpeaking(false);
+      }
     }
   };
 
@@ -224,11 +411,16 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
     return null;
   }
 
+  const toggleSidebar = () => {
+    setIsSidebarOpen((prev) => !prev);
+  };
+
   return (
     <AccessibilityContext.Provider
       value={{
         theme,
         toggleTheme,
+        setThemeMode,
         voiceVolume,
         setVoiceVolume,
         speechRate,
@@ -237,6 +429,8 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
         setSpeechPitch,
         voiceGuidanceActive,
         setVoiceGuidanceActive,
+        wakeWordActive,
+        setWakeWordActive,
         userProfile,
         setUserProfile,
         applyPreset,
@@ -245,6 +439,9 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
         isSpeaking,
         isAssistantOpen,
         setIsAssistantOpen,
+        isSidebarOpen,
+        setIsSidebarOpen,
+        toggleSidebar,
         captionSize,
         setCaptionSize,
         reducedMotion,

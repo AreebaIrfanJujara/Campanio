@@ -13,7 +13,6 @@ export async function POST(req: NextRequest) {
 
   try {
     const { text, targetLanguage, sourceLanguage = "en" } = await req.json();
-    const apiKey = process.env.GOOGLE_CLOUD_TRANSLATE_API_KEY;
 
     if (!text || !targetLanguage) {
       const res = NextResponse.json({ error: "Missing text or targetLanguage in request body" }, { status: 400 });
@@ -28,41 +27,113 @@ export async function POST(req: NextRequest) {
       return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
     }
 
-    if (apiKey) {
-      const translateEndpoint = `https://translation.googleapis.com/language/translate/v2?key=${apiKey}`;
-      const response = await fetch(translateEndpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          q: text,
-          target: targetLanguage,
-          source: sourceLanguage,
-          format: "text"
-        })
-      });
+    const translatePrompt = `Translate the following text from ${sourceLanguage} to ${targetLanguage}. Return ONLY the translated text, no explanation, no quotes:\n\n${text}`;
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        const res = NextResponse.json({ error: `Translate API error: ${errorText}` }, { status: 500 });
-        return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
+    // Step 1 — Groq high-speed LPU translation (~200ms)
+    const groqApiKey = process.env.GROQ_API_KEY;
+    if (groqApiKey) {
+      try {
+        const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${groqApiKey}`
+          },
+          body: JSON.stringify({
+            model: "qwen/qwen3.8-27b",
+            messages: [{ role: "user", content: translatePrompt }],
+            max_tokens: 300,
+            temperature: 0.2
+          })
+        });
+
+        if (groqResponse.ok) {
+          const data = await groqResponse.json();
+          const translatedText = data.choices?.[0]?.message?.content;
+
+          if (translatedText) {
+            const payload = {
+              translatedText: translatedText.trim(),
+              detectedLanguage: sourceLanguage,
+              source: "groq"
+            };
+
+            setCostCache(cacheKey, payload);
+
+            const res = NextResponse.json(payload);
+            res.headers.set('X-Cache', 'MISS');
+            return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
+          }
+        }
+      } catch {
+        // Groq failed — trying Gemini
       }
-
-      const data = await response.json();
-      const translation = data.data?.translations?.[0];
-      const payload = {
-        translatedText: translation?.translatedText || "",
-        detectedLanguage: translation?.detectedSourceLanguage || "en",
-        source: "google-cloud-translate"
-      };
-
-      setCostCache(cacheKey, payload);
-
-      const res = NextResponse.json(payload);
-      res.headers.set('X-Cache', 'MISS');
-      return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
     }
 
-    // Mock Fallback
+    // Step 2 — Gemini 2.5 Flash translation
+    const geminiApiKey = process.env.GEMINI_API_KEY;
+    if (geminiApiKey) {
+      try {
+        const geminiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`;
+        const response = await fetch(geminiEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: [{ text: translatePrompt }] }]
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const translatedText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+          if (translatedText) {
+            const payload = {
+              translatedText: translatedText.trim(),
+              detectedLanguage: sourceLanguage,
+              source: "gemini"
+            };
+
+            setCostCache(cacheKey, payload);
+
+            const res = NextResponse.json(payload);
+            res.headers.set('X-Cache', 'MISS');
+            return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
+          }
+        }
+      } catch {
+        // Gemini failed — trying MyMemory
+      }
+    }
+
+    // Step 3 — MyMemory (free, no key required)
+    try {
+      const myMemoryUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${sourceLanguage}|${targetLanguage}`;
+      const myMemoryResponse = await fetch(myMemoryUrl, { method: "GET" });
+
+      if (myMemoryResponse.ok) {
+        const data = await myMemoryResponse.json();
+        const translatedText = data.responseData?.translatedText;
+
+        if (translatedText) {
+          const payload = {
+            translatedText,
+            detectedLanguage: sourceLanguage,
+            source: "mymemory"
+          };
+
+          setCostCache(cacheKey, payload);
+
+          const res = NextResponse.json(payload);
+          res.headers.set('X-Cache', 'MISS');
+          return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
+        }
+      }
+    } catch {
+      // MyMemory also failed — falling through to mock
+    }
+
+    // Step 4 — Mock fallback (network down entirely)
     const mockTranslations: { [key: string]: string } = {
       es: "Traducido: " + text,
       fr: "Traduit: " + text,

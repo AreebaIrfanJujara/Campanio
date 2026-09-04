@@ -8,7 +8,7 @@ export default function PrivacyPage() {
   const { speak } = useAccessibility();
 
   return (
-    <div className="flex-grow flex flex-col px-margin-edge py-stack-lg gap-6 max-w-2xl mx-auto w-full text-on-surface">
+    <div className="flex-grow flex flex-col px-margin-edge py-stack-lg gap-6 w-full text-on-surface">
       <div className="flex flex-col gap-2">
         <h1 className="text-3xl font-bold font-display-ocr">Privacy & Data Retention</h1>
         <p className="text-lg text-on-surface-variant leading-relaxed">

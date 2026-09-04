@@ -13,7 +13,7 @@ export default function NotFound() {
 
   return (
     <div className="min-h-[70vh] flex flex-col items-center justify-center gap-8 px-margin-edge text-center text-on-surface">
-      <div className="text-8xl font-black text-primary opacity-20">404</div>
+      <div className="text-8xl font-black text-primary opacity-20" aria-hidden="true">404</div>
       <h1 className="text-4xl font-extrabold font-display-ocr text-on-surface">Page Not Found</h1>
       <p className="text-xl text-on-surface-variant max-w-md leading-relaxed">
         The page you are looking for doesn't exist or has moved.

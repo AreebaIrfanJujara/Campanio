@@ -1,7 +1,34 @@
+## 📋 Changelog — 2026-09-03: Dark Mode & Theming System Overhaul
+
+**Full Dark Mode support added across all 31 routes and components:**
+
+- **CSS & Design System (`globals.css`)** — Added `@variant dark (&:where(.dark, .dark *));` for class-based Tailwind v4 variant targeting. Added `.dark` block implementing the Material Design 3 dark tonal palette with dark blue-grey surface elevation tiers (`--surface: #131318`, `--surface-container: #201f23`, `--on-surface: #e4e2e6`, etc.) ensuring visual separation of cards, viewfinders, and borders.
+- **Accessibility Context (`AccessibilityContext.tsx`)** — Expanded theme model from 2-way to 3-state (`"standard" | "dark" | "high-contrast"`). Updated body class side-effect to independently add/remove `.dark` and `.high-contrast` classes. Added `setThemeMode(mode)` explicit setter and upgraded `toggleTheme()` to cycle: Standard → Dark → High Contrast → Standard. Preserved `applyPreset("visual")` -> High Contrast mapping.
+- **Top App Bar (`TopAppBar.tsx`)** — Upgraded header theme toggle to 3-state cycle with dynamic icons (`light_mode`, `dark_mode`, `contrast`), accessible live-speech announcements, and dynamic ARIA descriptions.
+- **Settings Page (`settings/page.tsx`)** — Replaced single high contrast toggle with a 3-button segmented control (Light / Dark / High Contrast) featuring descriptive subtext ("Dark — easier on the eyes in low light", "High Contrast — maximum contrast for low vision").
+- **Component & Route Audit** — Replaced hardcoded literal colors (`zinc-950`, `zinc-900`, `zinc-400`, `zinc-500`, `bg-[#313030]`, `text-[#ffd400]`, etc.) across `page.tsx`, `home/page.tsx`, `home/ocr/page.tsx`, `home/explore/page.tsx`, `home/scene-desc/page.tsx`, `home/captions/page.tsx`, `home/conversation/page.tsx`, and `home/translation/page.tsx` with semantic design tokens.
+
+---
+
+## 📋 Changelog — 2026-09-03: Removed Billing-Dependent Google Cloud APIs
+
+**Google Cloud TTS / STT / Translate removed.** All three billing-dependent APIs have been replaced with free, no-credit-card-required alternatives:
+
+- **TTS (`/api/tts/speak`)** — Google Cloud Text-to-Speech removed entirely. The route now always returns `{ useBrowserTTS: true }`, instructing the client to use the Web Speech API (`speechSynthesis`) which it already supported as a fallback. No server-side voice synthesis is performed.
+- **STT (`/api/stt/transcribe`)** — Google Cloud Speech-to-Text replaced with **Groq Whisper** (`whisper-large-v3`). Sends the base64 audio as a multipart upload to Groq's OpenAI-compatible `/audio/transcriptions` endpoint. Simulated speaker separation is preserved (Whisper does not return per-word diarization). Falls back to the existing mock on failure.
+- **Translate (`/api/translate`)** — Google Cloud Translate replaced with a 4-step free chain: **Gemini** (prompt-based) → **Groq** `llama-3.3-70b-versatile` (prompt-based) → **MyMemory** (free public REST API, no key) → hardcoded mock. Cost-cache wrapping preserved.
+- **Assistant (`/api/assistant`)** — Provider chain extended to **Gemini → Groq → mock**. Gemini call is now wrapped in try/catch; on failure it falls through to Groq (`llama-3.3-70b-versatile`) before the existing mock block. Cache behaviour unchanged.
+
+**Google Cloud Vision (OCR / describe / currency) is unchanged** — those three routes still use the Vision API and are out of scope for this change.
+
+**New env var:** `GROQ_API_KEY` (free tier at console.groq.com). Removed from `.env.example`: `GOOGLE_CLOUD_TTS_API_KEY`, `GOOGLE_CLOUD_STT_API_KEY`, `GOOGLE_CLOUD_TRANSLATE_API_KEY`.
+
+---
+
 # saad.md — Companio PRD Implementation Progress Tracker
 
-> Last updated: 2026-09-01
-> Stack: Next.js 16 (App Router) · TypeScript · Tailwind CSS v4 · Supabase · Google Cloud AI APIs · Python FastAPI · Node.js Gateway
+> Last updated: 2026-09-03
+> Stack: Next.js 16 (App Router) · TypeScript · Tailwind CSS v4 · Supabase · Google Cloud Vision API · Groq · Gemini · Python FastAPI · Node.js Gateway
 > Build status: ✅ Production build compiles cleanly (31 routes, zero TypeScript errors)
 
 ---

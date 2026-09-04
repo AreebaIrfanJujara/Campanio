@@ -124,7 +124,17 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
       e.preventDefault();
       setDeferredPrompt(e as BeforeInstallPromptEvent);
       setIsInstallable(true);
-      setShowInstallBanner(true);
+
+      try {
+        const dismissed = localStorage.getItem("companio_install_dismissed");
+        if (dismissed === "true") {
+          setShowInstallBanner(false);
+        } else {
+          setShowInstallBanner(true);
+        }
+      } catch {
+        setShowInstallBanner(false);
+      }
     };
 
     const handleAppInstalled = () => {
@@ -132,6 +142,9 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setIsInstallable(false);
       setShowInstallBanner(false);
       setDeferredPrompt(null);
+      try {
+        localStorage.setItem("companio_install_dismissed", "true");
+      } catch {}
       addToast("Companio installed successfully!", "success");
       speak("Companio has been installed to your device.");
     };
@@ -147,7 +160,8 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const installPWA = useCallback(async (): Promise<boolean> => {
     if (!deferredPrompt) {
-      addToast("Install is not available right now", "info");
+      addToast("Install is not available right now. You can add Companio to home screen from browser menu.", "info");
+      speak("To install Companio, tap your browser menu and choose Add to Home Screen.", true);
       return false;
     }
 
@@ -158,6 +172,9 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setIsInstalled(true);
         setShowInstallBanner(false);
         setDeferredPrompt(null);
+        try {
+          localStorage.setItem("companio_install_dismissed", "true");
+        } catch {}
         return true;
       }
       return false;
@@ -165,10 +182,13 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
       console.error("Install prompt error:", e);
       return false;
     }
-  }, [deferredPrompt, addToast]);
+  }, [deferredPrompt, addToast, speak]);
 
   const dismissInstallPrompt = useCallback(() => {
     setShowInstallBanner(false);
+    try {
+      localStorage.setItem("companio_install_dismissed", "true");
+    } catch {}
   }, []);
 
   return (

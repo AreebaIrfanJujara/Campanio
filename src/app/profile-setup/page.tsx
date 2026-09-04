@@ -42,7 +42,7 @@ export default function ProfileSetupPage() {
   };
 
   const handleFocus = (title: string, desc: string) => {
-    speak(`${title}. ${desc}`);
+    speak(`${title}. ${desc}`, true);
   };
 
   const handleContinue = () => {
@@ -56,7 +56,7 @@ export default function ProfileSetupPage() {
   };
 
   return (
-    <div className="flex-grow flex flex-col justify-center max-w-xl mx-auto w-full px-margin-edge py-stack-lg gap-8">
+    <div className="flex-grow flex flex-col justify-center w-full px-margin-edge py-stack-lg gap-8">
       {/* Title Block */}
       <div className="text-center md:text-left flex flex-col gap-2">
         <h1 className="text-3xl font-bold text-on-surface">Choose Accessibility Profile</h1>

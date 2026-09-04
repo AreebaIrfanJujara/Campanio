@@ -50,7 +50,7 @@ export default function PermissionMicPage() {
   };
 
   return (
-    <div className="flex-grow flex flex-col justify-center items-center max-w-md mx-auto w-full px-margin-edge py-stack-lg gap-8 text-center">
+    <div className="flex-grow flex flex-col justify-center items-center w-full px-margin-edge py-stack-lg gap-8 text-center">
       {/* Visual illustration */}
       <div className="w-32 h-32 rounded-full bg-primary/10 border-2 border-primary flex items-center justify-center relative shadow-lg">
         <span className="material-symbols-outlined text-6xl text-primary" style={{ fontVariationSettings: "'FILL' 1" }}>
@@ -71,13 +71,13 @@ export default function PermissionMicPage() {
 
       {/* Permission Feedback */}
       {status === "granted" && (
-        <div className="flex items-center gap-2 bg-green-500/10 text-green-700 dark:text-green-400 font-bold py-2 px-4 rounded-full border border-green-500/30 animate-slide-up">
+        <div role="status" aria-live="polite" className="flex items-center gap-2 bg-green-500/10 text-green-700 dark:text-green-400 font-bold py-2 px-4 rounded-full border border-green-500/30 animate-slide-up">
           <span className="material-symbols-outlined">check_circle</span>
           Access Granted
         </div>
       )}
       {status === "denied" && (
-        <div className="flex items-center gap-2 bg-red-500/10 text-red-700 dark:text-red-400 font-bold py-2 px-4 rounded-full border border-red-500/30 animate-slide-up">
+        <div role="status" aria-live="polite" className="flex items-center gap-2 bg-red-500/10 text-red-700 dark:text-red-400 font-bold py-2 px-4 rounded-full border border-red-500/30 animate-slide-up">
           <span className="material-symbols-outlined">cancel</span>
           Access Denied (Mock Simulation Active)
         </div>

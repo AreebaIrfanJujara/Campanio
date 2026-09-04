@@ -5,6 +5,8 @@ import { useAccessibility } from "@/context/AccessibilityContext";
 import { CompanioAPI } from "@/lib/api";
 import { useToast } from "@/context/ToastContext";
 import { useActivity } from "@/context/ActivityContext";
+import { getSourceLabel, REAL_SOURCES } from "@/lib/sourceLabel";
+import { CameraPermissionView } from "@/components/CameraPermissionView";
 
 export default function OCRPage() {
   const { speak, userProfile } = useAccessibility();
@@ -37,28 +39,30 @@ export default function OCRPage() {
     { code: "ur", name: "Urdu (اردو)" }
   ];
 
-  // Request camera stream on mount
-  useEffect(() => {
-    async function startCamera() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment" },
-          audio: false,
-        });
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
-        setHasCamera(true);
-      } catch (err) {
-        console.error("Camera access error:", err);
-        setCameraError(
-          "Could not open camera stream. Use image upload or mock OCR mode."
-        );
-        setHasCamera(false);
+  const startCamera = async () => {
+    setCameraError("");
+    try {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
       }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+      setHasCamera(true);
+      speak("Camera enabled. Point your lens at text to scan.", true);
+    } catch (err) {
+      console.warn("Camera access notice:", err);
+      setCameraError("Camera permission denied or unavailable.");
+      setHasCamera(false);
     }
+  };
 
+  useEffect(() => {
     startCamera();
 
     return () => {
@@ -68,16 +72,21 @@ export default function OCRPage() {
     };
   }, []);
 
-  // Capture frame from video as base64
+  // Capture frame from video as optimized base64
   const captureFrameBase64 = (): string | null => {
     if (!videoRef.current || !hasCamera) return null;
+    const video = videoRef.current;
+    const vw = video.videoWidth || 640;
+    const vh = video.videoHeight || 480;
+    const maxDim = 640;
+    const scale = Math.min(1, maxDim / Math.max(vw, vh));
     const canvas = document.createElement("canvas");
-    canvas.width = videoRef.current.videoWidth || 640;
-    canvas.height = videoRef.current.videoHeight || 480;
+    canvas.width = Math.round(vw * scale);
+    canvas.height = Math.round(vh * scale);
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
-    ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL("image/jpeg", 0.85);
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.7);
   };
 
   const handleScan = async () => {
@@ -94,25 +103,14 @@ export default function OCRPage() {
         setScannedText(result.text);
         setOcrSource(result.source);
         speak(`Detected text: ${result.text}`, true);
-        addToast(`Text scanned (${result.source === "mock" ? "demo mode" : "Vision API"})`, "success");
+        addToast(getSourceLabel(result.source, "ocr").toast, "success");
         logActivity("ocr", `OCR: ${result.text.slice(0, 50)}`, "photo_camera", result.source);
       } else {
-        // No camera — use mock
         throw new Error("No camera frame available");
       }
     } catch (err) {
-      // Fallback to mock if API fails
-      const mockTexts = [
-        "Pharmacy label: Take one tablet by mouth daily in the morning with food. Quantity 30. Prescribed to Alex Smith.",
-        "Street Sign: Caution, Pedestrian Crossing Ahead. Speed Limit 25 Miles Per Hour.",
-        "Companio Accessibility Guide: Ensure all interactive targets maintain a minimum width and height of 56 pixels.",
-        "Grocery receipt: Whole Milk two dollars fifty cents, Organic Bread three dollars twenty cents. Total five dollars seventy cents.",
-      ];
-      const randomText = mockTexts[Math.floor(Math.random() * mockTexts.length)];
-      setScannedText(randomText);
-      setOcrSource("mock-fallback");
-      speak(`Detected text: ${randomText}`, true);
-      addToast("Text scanned (demo fallback)", "success");
+      addToast("Could not detect text from camera. Try holding still or uploading an image.", "error");
+      speak("No text detected. Please aim camera at clear text or upload an image.", true);
     } finally {
       setIsScanning(false);
     }
@@ -140,7 +138,7 @@ export default function OCRPage() {
           setScannedText(result.text);
           setOcrSource(result.source);
           speak(`Detected text: ${result.text}`, true);
-          addToast(`Text scanned (${result.source === "mock" ? "demo mode" : "Vision API"})`, "success");
+          addToast(getSourceLabel(result.source, "ocr").toast, "success");
           logActivity("ocr", `OCR (upload): ${result.text.slice(0, 50)}`, "upload_file", result.source);
         } catch (err) {
           addToast("OCR failed on uploaded image", "error");
@@ -181,8 +179,29 @@ export default function OCRPage() {
     speak("Camera ready to scan again.", true);
   };
 
+  const handleImageUpload = async (base64: string) => {
+    setIsScanning(true);
+    setTranslatedText("");
+    setScannedText("");
+    speak("Scanning uploaded image for text...", true);
+
+    try {
+      const result = await CompanioAPI.ocr(base64);
+      setScannedText(result.text);
+      setOcrSource(result.source);
+      speak(`Detected text: ${result.text}`, true);
+      addToast("Text scanned successfully", "success");
+      logActivity("ocr", `Scanned text (${result.text.slice(0, 20)}...)`, "photo_camera", result.source);
+    } catch (err: any) {
+      console.error(err);
+      addToast("Could not detect text from image", "error");
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
   return (
-    <div className="flex-grow flex flex-col px-margin-edge py-stack-lg gap-6 max-w-2xl mx-auto w-full">
+    <div className="flex-grow flex flex-col px-margin-edge py-stack-lg gap-6 w-full">
       {/* Title block */}
       <div className="flex flex-col gap-2">
         <h1 className="text-3xl font-bold text-on-surface">Read Text (OCR)</h1>
@@ -191,9 +210,9 @@ export default function OCRPage() {
         </p>
       </div>
 
-      {/* Camera Viewfinder frame */}
-      <div className="w-full aspect-video bg-black rounded-2xl overflow-hidden relative border-2 border-outline-variant shadow-lg flex items-center justify-center">
-        {hasCamera ? (
+      {/* Camera Viewfinder frame or Permission View */}
+      {hasCamera ? (
+        <div className="w-full aspect-video bg-black rounded-3xl overflow-hidden relative border-2 border-outline-variant shadow-lg flex items-center justify-center">
           <video
             ref={videoRef}
             autoPlay
@@ -201,29 +220,29 @@ export default function OCRPage() {
             muted
             className="w-full h-full object-cover"
           />
-        ) : (
-          <div className="text-center p-6 text-zinc-400">
-            <span className="material-symbols-outlined text-6xl mb-2 text-zinc-600">
-              videocam_off
-            </span>
-            <p className="text-lg font-semibold">{cameraError || "Loading camera stream..."}</p>
-          </div>
-        )}
 
-        {/* OCR green scanner bar line animation */}
-        {isScanning && (
-          <div className="absolute inset-x-0 h-1 bg-green-500 shadow-[0_0_12px_#22c55e] animate-[bounce_2s_infinite] top-0 pointer-events-none"></div>
-        )}
-
-        {/* Viewfinder brackets overlay */}
-        <div className="absolute inset-6 border-2 border-dashed border-white/30 rounded-xl pointer-events-none flex items-center justify-center">
-          {!isScanning && !scannedText && (
-            <span className="text-white/60 bg-black/60 px-4 py-2 rounded-full font-label-md">
-              Align text here
-            </span>
+          {/* OCR green scanner bar line animation */}
+          {isScanning && (
+            <div className="absolute inset-x-0 h-1 bg-green-500 shadow-[0_0_12px_#22c55e] animate-[bounce_2s_infinite] top-0 pointer-events-none"></div>
           )}
+
+          {/* Viewfinder brackets overlay */}
+          <div className="absolute inset-6 border-2 border-dashed border-white/30 rounded-xl pointer-events-none flex items-center justify-center">
+            {!isScanning && !scannedText && (
+              <span className="text-white/60 bg-black/60 px-4 py-2 rounded-full font-label-md">
+                Align text here
+              </span>
+            )}
+          </div>
         </div>
-      </div>
+      ) : (
+        <CameraPermissionView
+          onRetry={startCamera}
+          onImageSelected={handleImageUpload}
+          title="Camera Permission Required"
+          subtitle="Companio needs camera access to scan documents, books, signs, and labels live."
+        />
+      )}
 
       {/* Dynamic Results cards */}
       <div className="flex flex-col gap-4">
@@ -242,8 +261,8 @@ export default function OCRPage() {
               </span>
               <div className="flex items-center gap-2">
                 {ocrSource && (
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${ocrSource === "google-cloud-vision" ? "bg-emerald-500/10 text-emerald-600" : "bg-amber-500/10 text-amber-600"}`}>
-                    {ocrSource === "google-cloud-vision" ? "Vision API" : "Demo"}
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${REAL_SOURCES.includes(ocrSource) ? "bg-emerald-500/10 text-emerald-600" : "bg-amber-500/10 text-amber-600"}`}>
+                    {getSourceLabel(ocrSource, "ocr").badge}
                   </span>
                 )}
                 <button
@@ -271,12 +290,54 @@ export default function OCRPage() {
 
             {/* Translation interface inside result card */}
             <div className="mt-4 pt-4 border-t border-outline-variant flex flex-col gap-3">
-              <span className="font-semibold text-base text-on-surface">Translate Result</span>
-              <div className="flex gap-3">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-base text-on-surface flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-primary text-xl">translate</span>
+                  Translate Scanned Text
+                </span>
+                <span className="text-xs text-on-surface-variant font-semibold">Gemini + Groq AI</span>
+              </div>
+
+              {/* Quick Language Quick-Select Pills */}
+              <div className="flex flex-wrap gap-2">
+                {languages.map((l) => (
+                  <button
+                    key={l.code}
+                    type="button"
+                    onClick={() => {
+                      setTargetLang(l.code);
+                      if (scannedText) {
+                        (async () => {
+                          setIsTranslating(true);
+                          try {
+                            const result = await CompanioAPI.translate(scannedText, l.code);
+                            setTranslatedText(result.translatedText);
+                            speak(`Translation in ${l.name}: ${result.translatedText}`, true);
+                            addToast(`Translated to ${l.name}`, "success");
+                          } catch {
+                            addToast("Translation failed", "error");
+                          } finally {
+                            setIsTranslating(false);
+                          }
+                        })();
+                      }
+                    }}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-extrabold border transition-all cursor-pointer ${
+                      targetLang === l.code
+                        ? "bg-primary text-white border-primary shadow-sm"
+                        : "bg-surface-container hover:bg-surface-container-high text-on-surface border-outline-variant"
+                    }`}
+                  >
+                    {l.name.split(" ")[0]}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex gap-3 mt-1">
                 <select
                   value={targetLang}
                   onChange={(e) => setTargetLang(e.target.value)}
-                  className="flex-grow h-12 px-3 rounded-xl bg-surface-container border border-outline font-semibold text-base text-on-surface"
+                  className="flex-grow h-12 px-3 rounded-xl bg-surface-container border-2 border-outline font-semibold text-base text-on-surface"
                   aria-label="Select target language"
                 >
                   {languages.map((l) => (
@@ -288,28 +349,51 @@ export default function OCRPage() {
                 <button
                   onClick={handleTranslate}
                   disabled={isTranslating}
-                  className="h-12 px-6 bg-primary hover:bg-primary-container text-white font-bold rounded-xl cursor-pointer disabled:bg-outline/30"
+                  className="h-12 px-6 bg-primary hover:bg-primary-container text-white font-bold rounded-xl cursor-pointer disabled:opacity-50 flex items-center gap-2 shadow-md transition-all active:scale-95"
                 >
-                  {isTranslating ? "Translating..." : "Translate"}
+                  {isTranslating ? (
+                    <>
+                      <div className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
+                      <span>Translating...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="material-symbols-outlined text-lg">g_translate</span>
+                      <span>Translate</span>
+                    </>
+                  )}
                 </button>
               </div>
 
-              {/* Translation output */}
+              {/* Translation output card */}
               {translatedText && (
-                <div className="mt-3 bg-surface-container border border-primary/20 rounded-xl p-4 flex flex-col gap-2 animate-slide-up">
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs uppercase font-black tracking-wider text-primary">
-                      Translation ({targetLang})
+                <div className="mt-3 bg-surface-container-high border-2 border-primary/30 rounded-2xl p-5 flex flex-col gap-3 animate-slide-up shadow-sm">
+                  <div className="flex justify-between items-center border-b border-outline-variant/60 pb-2">
+                    <span className="text-xs uppercase font-black tracking-wider text-primary flex items-center gap-1.5">
+                      <span className="material-symbols-outlined text-sm">verified</span>
+                      Translation ({languages.find((l) => l.code === targetLang)?.name || targetLang})
                     </span>
-                    <button
-                      onClick={() => speak(translatedText, true)}
-                      className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center hover:bg-primary/20 cursor-pointer"
-                      aria-label="Read translation aloud"
-                    >
-                      <span className="material-symbols-outlined text-base">volume_up</span>
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(translatedText);
+                          addToast("Translation copied", "success");
+                        }}
+                        className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center hover:bg-primary/20 cursor-pointer"
+                        aria-label="Copy translation"
+                      >
+                        <span className="material-symbols-outlined text-base">content_copy</span>
+                      </button>
+                      <button
+                        onClick={() => speak(translatedText, true)}
+                        className="w-9 h-9 rounded-full bg-primary text-white flex items-center justify-center hover:bg-primary-container cursor-pointer shadow-sm"
+                        aria-label="Read translation aloud"
+                      >
+                        <span className="material-symbols-outlined text-lg">volume_up</span>
+                      </button>
+                    </div>
                   </div>
-                  <p className="text-xl font-bold text-on-surface leading-relaxed select-text font-display-ocr">
+                  <p className="text-2xl font-bold text-on-surface leading-relaxed select-text font-display-ocr">
                     {translatedText}
                   </p>
                 </div>

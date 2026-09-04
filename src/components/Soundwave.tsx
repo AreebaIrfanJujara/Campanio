@@ -21,7 +21,7 @@ export const Soundwave: React.FC<SoundwaveProps> = ({ color = "bg-white", size =
   };
 
   return (
-    <div className={`flex items-end justify-center gap-1.5 ${heightClasses[size]} relative`}>
+    <div className={`flex items-end justify-center gap-1.5 ${heightClasses[size]} relative`} aria-hidden="true">
       <div className={`${barWidthClasses[size]} ${color} rounded-full soundwave-bar h-1/2`}></div>
       <div className={`${barWidthClasses[size]} ${color} rounded-full soundwave-bar h-full`}></div>
       <div className={`${barWidthClasses[size]} ${color} rounded-full soundwave-bar h-2/3`}></div>

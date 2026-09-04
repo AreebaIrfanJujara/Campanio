@@ -34,14 +34,14 @@ export default function WearablePage() {
   };
 
   return (
-    <div className="flex-grow flex flex-col px-margin-edge py-stack-lg gap-6 max-w-2xl mx-auto w-full text-on-surface">
+    <div className="flex-grow flex flex-col px-margin-edge py-stack-lg gap-6 w-full text-on-surface">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-outline-variant pb-3">
         <div>
           <h1 className="text-3xl font-bold font-display-ocr">Wearable Companion</h1>
           <p className="text-sm text-on-surface-variant font-semibold">Smartwatch bridge & haptic accessibility</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div role="status" aria-live="polite" className="flex items-center gap-2">
           <span className={`w-3 h-3 rounded-full ${paired ? "bg-emerald-500 animate-pulse" : "bg-zinc-500"}`}></span>
           <span className="text-xs font-bold text-on-surface">{paired ? "Paired" : "Disconnected"}</span>
         </div>
@@ -57,7 +57,7 @@ export default function WearablePage() {
           </div>
 
           {/* Center Display */}
-          <div className="text-center px-3">
+          <div role="status" aria-live="polite" className="text-center px-3">
             <span className="text-xs text-emerald-400 font-mono font-bold block mb-1">
               {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
             </span>
@@ -76,6 +76,7 @@ export default function WearablePage() {
             onClick={() => handleWristTrigger("sos")}
             className="w-10 h-10 rounded-full bg-red-600 hover:bg-red-700 text-white flex items-center justify-center text-[10px] font-black shadow-lg cursor-pointer active:scale-90 transition-transform mb-1"
             title="Wrist SOS Button"
+            aria-label="Wrist emergency SOS trigger"
           >
             SOS
           </button>

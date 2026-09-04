@@ -14,7 +14,6 @@ export async function POST(req: NextRequest) {
 
   try {
     const { imageBase64 } = await req.json();
-    const apiKey = process.env.GOOGLE_CLOUD_VISION_API_KEY;
 
     if (!imageBase64) {
       const res = NextResponse.json({ error: "Missing imageBase64 in request body" }, { status: 400 });
@@ -29,98 +28,158 @@ export async function POST(req: NextRequest) {
       return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
     }
 
-    if (apiKey) {
-      const cleanedBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "");
-      const visionEndpoint = `https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`;
-      const response = await fetch(visionEndpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          requests: [
-            {
-              image: { content: cleanedBase64 },
-              features: [
-                { type: "LABEL_DETECTION", maxResults: 10 },
-                { type: "OBJECT_LOCALIZATION", maxResults: 10 }
-              ]
+    const cleanedBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "");
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Step 1: Gemini multimodal vision (Free tier / primary)
+    // ─────────────────────────────────────────────────────────────────────────────
+    const geminiApiKey = process.env.GEMINI_API_KEY;
+    if (geminiApiKey) {
+      try {
+        const geminiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`;
+        const prompt = "Describe this scene for a blind or low-vision person navigating it. Mention the walking path, any obstacles or hazards, and 2-4 notable objects. Keep it to 1-2 short sentences, spoken-language style, no markdown.\nAt the very end of your response on a new line, write: OBJECTS: Object1, Object2, Object3 (list 2 to 4 comma-separated notable object names).";
+
+        const geminiRes = await fetch(geminiEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  { text: prompt },
+                  {
+                    inline_data: {
+                      mime_type: "image/jpeg",
+                      data: cleanedBase64,
+                    },
+                  },
+                ],
+              },
+            ],
+          }),
+        });
+
+        if (geminiRes.ok) {
+          const data = await geminiRes.json();
+          const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (rawText && typeof rawText === "string") {
+            let description = "";
+            let objectsDetected: Array<{ name: string; confidence: number }> = [];
+
+            const objectsMatch = rawText.match(/OBJECTS:\s*([^\n\r]+)/i);
+            if (objectsMatch) {
+              const objNames = objectsMatch[1]
+                .split(",")
+                .map((s) => s.trim().replace(/^[-*•\s]+/, ""))
+                .filter((s) => s.length > 0);
+
+              objectsDetected = objNames.map((name) => ({
+                name,
+                confidence: 0.85, // estimated placeholder confidence since Gemini does not provide object-level detection scores
+              }));
+              description = rawText.replace(/OBJECTS:\s*[^\n\r]+/i, "").trim();
+            } else {
+              description = rawText.trim();
             }
-          ]
-        })
-      });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        const res = NextResponse.json({ error: `Vision API error: ${errorText}` }, { status: 500 });
-        return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
+            if (!description) {
+              description = "I see a room environment ahead. Walking space scanned.";
+            }
+
+            const objectNames = objectsDetected.map((o) => o.name);
+            const hazardEvals = detectHazards(objectNames, description);
+            const hazards = hazardEvals.map((h) => h.alertText);
+
+            const payload = {
+              description,
+              objects: objectsDetected,
+              hazards,
+              source: "gemini-vision",
+            };
+
+            setCostCache(cacheKey, payload);
+            const res = NextResponse.json(payload);
+            res.headers.set('X-Cache', 'MISS');
+            return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
+          }
+        } else {
+          console.warn(`[Describe] Gemini API returned status ${geminiRes.status}, falling through to next provider.`);
+        }
+      } catch (geminiErr) {
+        console.warn("[Describe] Gemini provider failed, falling through:", geminiErr);
       }
-
-      const data = await response.json();
-      const responseObj = data.responses?.[0];
-      
-      const labels = responseObj?.labelAnnotations || [];
-      const localizedObjects = responseObj?.localizedObjectAnnotations || [];
-
-      const objectsDetected = localizedObjects.map((obj: any) => ({
-        name: obj.name,
-        confidence: obj.score,
-      }));
-
-      const labelDescriptions = labels.map((l: any) => l.description);
-      const topLabels = labelDescriptions.slice(0, 5);
-      const description = "I see a scene with " + (topLabels.join(", ") || "various objects") + ". Walking space scanned.";
-      
-      // Advanced spatial hazard evaluations
-      const hazardEvals = detectHazards(labelDescriptions, description);
-      const hazards = hazardEvals.map((h) => h.alertText);
-
-      const payload = {
-        description,
-        objects: objectsDetected,
-        hazards,
-        source: "google-cloud-vision"
-      };
-
-      setCostCache(cacheKey, payload);
-
-      const res = NextResponse.json(payload);
-      res.headers.set('X-Cache', 'MISS');
-      return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
     }
 
-    // Mock Fallback
-    const mockScenes = [
-      {
-        description: "A tidy indoor living room. There is a gray couch straight ahead, a wooden coffee table in front of it, and a doorway on the right. Path is clear.",
-        objects: [
-          { name: "Couch", confidence: 0.94 },
-          { name: "Coffee Table", confidence: 0.89 },
-          { name: "Doorway", confidence: 0.92 }
-        ],
-        hazards: []
-      },
-      {
-        description: "An office corridor. There is a water dispenser on the right, a desktop setup on the left, and a safety exit sign visible ahead.",
-        objects: [
-          { name: "Water Dispenser", confidence: 0.91 },
-          { name: "Desktop PC", confidence: 0.87 },
-          { name: "Exit Sign", confidence: 0.96 }
-        ],
-        hazards: []
-      },
-      {
-        description: "A hallway with a low step down about three feet ahead. Please take caution.",
-        objects: [
-          { name: "Stairs", confidence: 0.93 },
-          { name: "Handrail", confidence: 0.85 }
-        ],
-        hazards: ["Critical: STAIRS detected ahead. Please stop and verify your footing."]
-      }
-    ];
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Step 2: Google Cloud Vision (Optional secondary fallback)
+    // ─────────────────────────────────────────────────────────────────────────────
+    const visionApiKey = process.env.GOOGLE_CLOUD_VISION_API_KEY;
+    if (visionApiKey) {
+      try {
+        const visionEndpoint = `https://vision.googleapis.com/v1/images:annotate?key=${visionApiKey}`;
+        const response = await fetch(visionEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            requests: [
+              {
+                image: { content: cleanedBase64 },
+                features: [
+                  { type: "LABEL_DETECTION", maxResults: 10 },
+                  { type: "OBJECT_LOCALIZATION", maxResults: 10 },
+                ],
+              },
+            ],
+          }),
+        });
 
-    const randomIndex = Math.floor(Math.random() * mockScenes.length);
+        if (response.ok) {
+          const data = await response.json();
+          const responseObj = data.responses?.[0];
+
+          const labels = responseObj?.labelAnnotations || [];
+          const localizedObjects = responseObj?.localizedObjectAnnotations || [];
+
+          const objectsDetected = localizedObjects.map((obj: any) => ({
+            name: obj.name,
+            confidence: obj.score,
+          }));
+
+          const labelDescriptions = labels.map((l: any) => l.description);
+          const topLabels = labelDescriptions.slice(0, 5);
+          const description = "I see a scene with " + (topLabels.join(", ") || "various objects") + ". Walking space scanned.";
+
+          // Advanced spatial hazard evaluations
+          const hazardEvals = detectHazards(labelDescriptions, description);
+          const hazards = hazardEvals.map((h) => h.alertText);
+
+          const payload = {
+            description,
+            objects: objectsDetected,
+            hazards,
+            source: "google-cloud-vision",
+          };
+
+          setCostCache(cacheKey, payload);
+          const res = NextResponse.json(payload);
+          res.headers.set('X-Cache', 'MISS');
+          return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
+        } else {
+          console.warn(`[Describe] Google Cloud Vision returned status ${response.status}, falling through to mock.`);
+        }
+      } catch (visionErr) {
+        console.warn("[Describe] Google Cloud Vision provider failed, falling through:", visionErr);
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Final: All providers exhausted — return honest empty result
+    // ─────────────────────────────────────────────────────────────────────────────
     const res = NextResponse.json({
-      ...mockScenes[randomIndex],
-      source: "mock"
+      description: "Scene could not be analyzed. Please ensure camera has a clear view.",
+      objects: [],
+      hazards: [],
+      source: "none",
     });
     return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
   } catch (error: any) {

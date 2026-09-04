@@ -20,18 +20,8 @@ export default function ConversationModePage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
-  const mockTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const presets = ["Yes", "No", "One moment, please.", "Thank you.", "I understand.", "Please repeat that."];
-
-  const mockThemPhrases = [
-    "Hello! How are you doing?",
-    "That sounds good to me.",
-    "Can you explain what you mean?",
-    "Ah, yes. I see now.",
-    "Sure! Let me grab that for you.",
-  ];
-  const [mockIndex, setMockIndex] = useState(0);
 
   // Derive predictive suggestions without useEffect — no setState in effect needed
   const predictions = useMemo(() => getPredictiveSuggestions(youText), [youText]);
@@ -84,7 +74,7 @@ export default function ConversationModePage() {
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      runMockListening();
+      addToast("Speech recognition not supported in this browser", "warning");
       return;
     }
 
@@ -113,7 +103,7 @@ export default function ConversationModePage() {
       rec.start();
     } catch (e) {
       console.error(e);
-      runMockListening();
+      addToast("Microphone access failed", "error");
     }
   };
 
@@ -123,23 +113,6 @@ export default function ConversationModePage() {
         recognitionRef.current.stop();
       } catch {}
     }
-    if (mockTimeoutRef.current) {
-      clearTimeout(mockTimeoutRef.current);
-    }
-  };
-
-  const runMockListening = () => {
-    if (mockTimeoutRef.current) clearTimeout(mockTimeoutRef.current);
-    const delay = Math.random() * 5000 + 4000;
-    mockTimeoutRef.current = setTimeout(() => {
-      const phrase = mockThemPhrases[mockIndex];
-      setThemCaptions((prev) => [...prev, phrase]);
-      if (isSyncActive) {
-        realtimeCaptions.broadcastCaption({ text: phrase, speaker: "them" });
-      }
-      setMockIndex((prev) => (prev + 1) % mockThemPhrases.length);
-      runMockListening();
-    }, delay);
   };
 
   const handleSpeakYou = (text: string) => {
@@ -189,14 +162,14 @@ export default function ConversationModePage() {
   };
 
   return (
-    <div className="flex-grow flex flex-col h-[calc(100vh-140px)] w-full max-w-2xl mx-auto overflow-hidden border-x border-outline-variant bg-background">
+    <div className="flex-grow flex flex-col h-full min-h-0 w-full overflow-hidden bg-background">
       
       {/* Top Half: THEM */}
-      <div className="flex-1 bg-zinc-950 text-white p-6 flex flex-col justify-between overflow-hidden relative">
-        <div className="flex justify-between items-center border-b border-white/10 pb-3">
+      <div className="flex-1 bg-surface-container-lowest text-on-surface p-6 flex flex-col justify-between overflow-hidden relative">
+        <div className="flex justify-between items-center border-b border-outline-variant pb-3">
           <div className="flex items-center gap-2">
             <span className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span className="font-bold text-base text-zinc-400 uppercase tracking-wider">Listening to them</span>
+            <span className="font-bold text-base text-on-surface-variant uppercase tracking-wider">Listening to them</span>
             {isSyncActive && (
               <span className="font-mono text-xs text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/30">
                 {roomCode}
@@ -207,7 +180,7 @@ export default function ConversationModePage() {
             <button
               onClick={toggleRoomSync}
               className={`px-2.5 py-1 rounded-lg text-xs font-bold border cursor-pointer transition-all ${
-                isSyncActive ? "bg-emerald-600 text-white border-emerald-500" : "bg-zinc-900 text-zinc-400 border-zinc-700"
+                isSyncActive ? "bg-emerald-600 text-white border-emerald-500" : "bg-surface-container text-on-surface-variant border-outline-variant"
               }`}
               title="Pair with secondary device"
             >
@@ -215,7 +188,7 @@ export default function ConversationModePage() {
             </button>
             <button
               onClick={handleCopyAllCaptions}
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/10 cursor-pointer"
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high cursor-pointer"
               aria-label="Copy all their captions"
             >
               <span className="material-symbols-outlined text-lg">content_copy</span>
@@ -223,7 +196,7 @@ export default function ConversationModePage() {
             <button
               onClick={() => setIsListeningThem(!isListeningThem)}
               className={`px-3 py-1 rounded-lg text-xs font-bold border cursor-pointer ${
-                isListeningThem ? "border-red-500/30 text-red-400 bg-red-950/20" : "border-zinc-700 text-zinc-300"
+                isListeningThem ? "border-red-500/30 text-red-400 bg-red-950/20" : "border-outline text-on-surface"
               }`}
             >
               {isListeningThem ? "Pause Mic" : "Resume Mic"}
@@ -234,19 +207,19 @@ export default function ConversationModePage() {
         {/* Captions scroll box */}
         <div ref={scrollRef} className="flex-grow overflow-y-auto flex flex-col gap-4 py-4 pr-1 scrollbar-thin">
           {themCaptions.length === 0 ? (
-            <div className="h-full flex items-center justify-center text-zinc-500 text-center">
+            <div className="h-full flex items-center justify-center text-on-surface-variant text-center">
               <p className="text-xl max-w-xs font-semibold">Point phone screen at them. Their speech will appear here.</p>
             </div>
           ) : (
             themCaptions.map((cap, i) => (
-              <div key={i} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 text-2xl font-bold leading-relaxed tracking-wide select-text animate-slide-up">
+              <div key={i} className="bg-surface-container-high border border-outline-variant rounded-2xl p-4 text-2xl font-bold leading-relaxed tracking-wide select-text animate-slide-up text-on-surface">
                 {highlightKeyPhrases(cap)}
               </div>
             ))
           )}
         </div>
 
-        <div className="flex justify-between items-center text-xs text-zinc-500 mt-2">
+        <div className="flex justify-between items-center text-xs text-on-surface-variant mt-2">
           <span>Avatar: THEM (FACING SIDE)</span>
           {isListeningThem && <Soundwave color="bg-emerald-500" size="sm" />}
         </div>

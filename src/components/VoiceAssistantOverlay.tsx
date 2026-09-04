@@ -23,6 +23,51 @@ export const VoiceAssistantOverlay: React.FC = () => {
   const [responseSource, setResponseSource] = useState<string>("");
 
   const recognitionRef = useRef<any>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const micButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Escape key and initial focus handling
+  useEffect(() => {
+    if (!isAssistantOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsAssistantOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    const timer = setTimeout(() => {
+      if (micButtonRef.current) {
+        micButtonRef.current.focus();
+      }
+    }, 50);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      clearTimeout(timer);
+    };
+  }, [isAssistantOpen, setIsAssistantOpen]);
+
+  // Focus trap inside assistant overlay
+  const handleOverlayKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Tab" || !overlayRef.current) return;
+    const focusables = overlayRef.current.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+    );
+    if (focusables.length === 0) return;
+    const firstElement = focusables[0];
+    const lastElement = focusables[focusables.length - 1];
+
+    if (e.shiftKey && document.activeElement === firstElement) {
+      e.preventDefault();
+      lastElement.focus();
+    } else if (!e.shiftKey && document.activeElement === lastElement) {
+      e.preventDefault();
+      firstElement.focus();
+    }
+  };
 
   // Stop speaking when overlay closes
   useEffect(() => {
@@ -174,11 +219,18 @@ export const VoiceAssistantOverlay: React.FC = () => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex flex-col justify-between p-margin-edge animate-fade-in text-white">
+    <div
+      ref={overlayRef}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="assistant-title"
+      onKeyDown={handleOverlayKeyDown}
+      className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex flex-col justify-between p-margin-edge animate-fade-in text-white"
+    >
       {/* Header */}
       <div className="flex items-center justify-between w-full">
         <div className="flex items-center gap-3">
-          <h2 className="font-display-ocr text-headline-md text-primary-fixed">Assistant</h2>
+          <h2 id="assistant-title" className="font-display-ocr text-headline-md text-primary-fixed">Assistant</h2>
           <span
             className={`text-xs font-bold px-2.5 py-1 rounded-full border ${
               isOnline
@@ -207,6 +259,7 @@ export const VoiceAssistantOverlay: React.FC = () => {
         {/* Big voice controller button */}
         <div className="relative w-44 h-44 flex items-center justify-center">
           <button
+            ref={micButtonRef}
             onClick={handleMicClick}
             aria-label={isListening ? "Stop listening" : "Start listening"}
             className={`w-32 h-32 rounded-full flex items-center justify-center transition-all cursor-pointer ${

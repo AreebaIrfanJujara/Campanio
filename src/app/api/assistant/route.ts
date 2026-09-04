@@ -30,6 +30,62 @@ export async function POST(req: NextRequest) {
 
     const systemInstruction = "You are Companio, an intelligent accessibility companion assistant. You help people with disabilities (visual, hearing, speech, motor, cognitive) understand their surroundings. Answer questions about what the user can see or hear based on the context. Keep your responses very concise (maximum 3 sentences). Never give medical or emergency response advice beyond directing to call for help.";
 
+    // Step 1 — Groq high-speed LPU assistant (~200ms)
+    const groqApiKey = process.env.GROQ_API_KEY;
+    if (groqApiKey) {
+      try {
+        const groqMessages: Array<{role: string; content: string}> = [
+          { role: "system", content: systemInstruction + (context ? "\n\nContext of what user currently sees/hears: " + context : "") }
+        ];
+
+        if (history && history.length > 0) {
+          for (const entry of history) {
+            groqMessages.push({
+              role: entry.role === "assistant" ? "assistant" : "user",
+              content: entry.content
+            });
+          }
+        } else {
+          groqMessages.push({ role: "user", content: message });
+        }
+
+        const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${groqApiKey}`
+          },
+          body: JSON.stringify({
+            model: "qwen/qwen3.8-27b",
+            messages: groqMessages,
+            max_tokens: 250,
+            temperature: 0.3
+          })
+        });
+
+        if (groqResponse.ok) {
+          const data = await groqResponse.json();
+          const reply = data.choices?.[0]?.message?.content;
+
+          if (reply) {
+            const payload = {
+              reply: reply.trim(),
+              source: "groq"
+            };
+
+            setCostCache(cacheKey, payload);
+
+            const res = NextResponse.json(payload);
+            res.headers.set('X-Cache', 'MISS');
+            return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
+          }
+        }
+      } catch {
+        // Groq failed — falling back to Gemini
+      }
+    }
+
+    // Step 2 — Gemini 2.5 Flash assistant
     if (apiKey) {
       const geminiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
       
@@ -58,31 +114,31 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      const response = await fetch(geminiEndpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents })
-      });
+      try {
+        const response = await fetch(geminiEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ contents })
+        });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        const res = NextResponse.json({ error: `Gemini API error: ${errorText}` }, { status: 500 });
-        return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
+        if (response.ok) {
+          const data = await response.json();
+          const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "I'm sorry, I couldn't process that request.";
+
+          const payload = {
+            reply: reply.trim(),
+            source: "gemini-api"
+          };
+
+          setCostCache(cacheKey, payload);
+
+          const res = NextResponse.json(payload);
+          res.headers.set('X-Cache', 'MISS');
+          return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
+        }
+      } catch {
+        // Gemini failed
       }
-
-      const data = await response.json();
-      const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "I'm sorry, I couldn't process that request.";
-
-      const payload = {
-        reply: reply.trim(),
-        source: "gemini-api"
-      };
-
-      setCostCache(cacheKey, payload);
-
-      const res = NextResponse.json(payload);
-      res.headers.set('X-Cache', 'MISS');
-      return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
     }
 
     // Smart Mock responses

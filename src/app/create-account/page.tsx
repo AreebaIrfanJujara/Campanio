@@ -50,7 +50,7 @@ export default function CreateAccountPage() {
   };
 
   return (
-    <div className="flex-grow flex flex-col justify-center max-w-md mx-auto w-full px-margin-edge py-stack-lg gap-8">
+    <div className="flex-grow flex flex-col justify-center w-full px-margin-edge py-stack-lg gap-8">
       {/* Title block */}
       <div className="text-center md:text-left flex flex-col gap-2">
         <h1 className="text-3xl font-bold text-on-surface">Create Account</h1>

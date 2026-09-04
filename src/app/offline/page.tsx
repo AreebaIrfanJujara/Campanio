@@ -29,7 +29,7 @@ export default function OfflinePage() {
   };
 
   return (
-    <div className="flex-grow flex flex-col px-margin-edge py-stack-lg gap-6 max-w-2xl mx-auto w-full text-on-surface">
+    <div className="flex-grow flex flex-col px-margin-edge py-stack-lg gap-6 w-full text-on-surface">
       {/* Offline Status Header */}
       <div className="bg-surface-container rounded-3xl p-6 border-2 border-amber-500/40 flex flex-col gap-4 text-center items-center shadow-lg">
         <div className="w-20 h-20 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center border-2 border-amber-500/30">
@@ -72,6 +72,7 @@ export default function OfflinePage() {
               }
             }}
             placeholder="Type anything to speak aloud..."
+            aria-label="Offline text to speak"
             className="flex-grow h-14 px-4 rounded-xl border-2 border-outline bg-surface text-lg font-bold font-display-ocr focus:border-primary focus:outline-none"
           />
           <button

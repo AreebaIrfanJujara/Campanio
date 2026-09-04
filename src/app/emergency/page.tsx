@@ -151,7 +151,7 @@ export default function EmergencyPage() {
   };
 
   return (
-    <div className={`flex-grow flex flex-col px-margin-edge py-stack-lg gap-6 max-w-2xl mx-auto w-full text-on-surface transition-colors ${strobeActive ? "bg-red-950/40" : ""}`}>
+    <div className={`flex-grow flex flex-col px-margin-edge py-stack-lg gap-6 w-full text-on-surface transition-colors ${strobeActive ? "bg-red-950/40" : ""}`}>
       {/* Top Header */}
       <div className="bg-red-600 text-white rounded-3xl p-6 shadow-xl flex items-center justify-between gap-4 border-2 border-red-400">
         <div className="flex items-center gap-3">

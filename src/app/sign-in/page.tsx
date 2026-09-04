@@ -86,15 +86,63 @@ export default function SignInPage() {
     }
   };
 
+  const forgotInputRef = React.useRef<HTMLInputElement>(null);
+  const forgotCloseBtnRef = React.useRef<HTMLButtonElement>(null);
+  const modalContainerRef = React.useRef<HTMLDivElement>(null);
+
+  // Escape key and initial focus handling for forgot password modal
+  React.useEffect(() => {
+    if (!showForgotModal) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setShowForgotModal(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    // Initial focus on email input when modal opens
+    const timer = setTimeout(() => {
+      if (forgotInputRef.current) {
+        forgotInputRef.current.focus();
+      } else if (forgotCloseBtnRef.current) {
+        forgotCloseBtnRef.current.focus();
+      }
+    }, 50);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      clearTimeout(timer);
+    };
+  }, [showForgotModal]);
+
+  // Focus trap for modal dialog
+  const handleModalKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Tab" || !modalContainerRef.current) return;
+    const focusables = modalContainerRef.current.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+    );
+    if (focusables.length === 0) return;
+    const firstElement = focusables[0];
+    const lastElement = focusables[focusables.length - 1];
+
+    if (e.shiftKey && document.activeElement === firstElement) {
+      e.preventDefault();
+      lastElement.focus();
+    } else if (!e.shiftKey && document.activeElement === lastElement) {
+      e.preventDefault();
+      firstElement.focus();
+    }
+  };
+
   return (
-    <div className="flex-grow flex items-center justify-center min-h-[calc(100vh-60px)] px-margin-edge py-stack-lg bg-gradient-to-tr from-[var(--background)] to-[var(--surface-container-low)]">
-      <div className="w-full max-w-md bg-surface border-2 border-outline-variant shadow-xl rounded-3xl p-8 flex flex-col gap-6 text-on-surface">
-        
-        {/* Wordmark and Tagline */}
-        <div className="text-center flex flex-col gap-1.5 mb-2">
-          <h1 className="text-4xl font-extrabold tracking-tight font-display-ocr text-primary">
-            Companio
-          </h1>
+    <div className="flex-grow flex flex-col justify-center px-margin-edge py-stack-lg w-full text-on-surface gap-6">
+      {/* Wordmark and Tagline */}
+      <div className="text-center flex flex-col gap-1.5 mb-2">
+        <h1 className="text-4xl font-extrabold tracking-tight font-display-ocr text-primary">
+          Companio
+        </h1>
           <p className="text-base font-bold text-on-surface-variant leading-relaxed">
             Your Universal Accessibility Companion
           </p>
@@ -224,18 +272,23 @@ export default function SignInPage() {
             Create Account
           </Link>
         </div>
-      </div>
 
       {/* Forgot Password Modal */}
       {showForgotModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in" onClick={() => setShowForgotModal(false)}>
           <div
+            ref={modalContainerRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="forgot-password-title"
+            onKeyDown={handleModalKeyDown}
             className="w-full max-w-md bg-surface border-2 border-outline-variant rounded-3xl p-8 shadow-2xl flex flex-col gap-5"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">
-              <h2 className="text-2xl font-extrabold text-on-surface">Reset Password</h2>
+              <h2 id="forgot-password-title" className="text-2xl font-extrabold text-on-surface">Reset Password</h2>
               <button
+                ref={forgotCloseBtnRef}
                 onClick={() => setShowForgotModal(false)}
                 className="w-10 h-10 rounded-full bg-surface-container flex items-center justify-center hover:bg-surface-container-high cursor-pointer"
                 aria-label="Close reset dialog"
@@ -264,6 +317,7 @@ export default function SignInPage() {
                 <div className="flex flex-col gap-2">
                   <label htmlFor="forgot-email" className="font-semibold text-base text-on-surface">Email address</label>
                   <input
+                    ref={forgotInputRef}
                     type="email"
                     id="forgot-email"
                     value={forgotEmail}

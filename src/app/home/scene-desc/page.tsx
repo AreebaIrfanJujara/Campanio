@@ -6,6 +6,8 @@ import { CompanioAPI } from "@/lib/api";
 import { useToast } from "@/context/ToastContext";
 import { useActivity } from "@/context/ActivityContext";
 import { wearableBridge } from "@/lib/wearableBridge";
+import { CameraPermissionView } from "@/components/CameraPermissionView";
+import { getSourceLabel, REAL_SOURCES } from "@/lib/sourceLabel";
 
 interface DetectedObject {
   label: string;
@@ -31,49 +33,30 @@ export default function SceneDescriptionPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
-  const mockScenes = [
-    {
-      description: "A tidy indoor living room. There is a gray couch straight ahead, a wooden coffee table in front of it, and a doorway on the right. Path is clear.",
-      objects: [
-        { label: "Couch", x: "25%", y: "30%", w: "50%", h: "40%" },
-        { label: "Coffee Table", x: "40%", y: "70%", w: "30%", h: "20%" },
-        { label: "Doorway", x: "80%", y: "15%", w: "15%", h: "70%" },
-      ],
-      hazards: [] as string[],
-    },
-    {
-      description: "An office corridor. There is a water dispenser on the right, a desktop setup on the left, and a safety exit sign visible ahead.",
-      objects: [
-        { label: "Water Dispenser", x: "70%", y: "40%", w: "20%", h: "50%" },
-        { label: "Desktop PC", x: "10%", y: "50%", w: "30%", h: "40%" },
-        { label: "Exit Sign", x: "45%", y: "10%", w: "10%", h: "10%" },
-      ],
-      hazards: [] as string[],
-    },
-  ];
-
-  // Request camera stream on mount
-  useEffect(() => {
-    async function startCamera() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment" },
-          audio: false,
-        });
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
-        setHasCamera(true);
-      } catch (err) {
-        console.error("Camera access error:", err);
-        setCameraError(
-          "Could not open camera stream. Standard mock scene narration mode active."
-        );
-        setHasCamera(false);
+  const startCamera = async () => {
+    setCameraError("");
+    try {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
       }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+      setHasCamera(true);
+      speak("Camera enabled. Point your lens at your surroundings.", true);
+    } catch (err: any) {
+      console.warn("Camera access request notice:", err);
+      setCameraError("Camera permission denied or unavailable.");
+      setHasCamera(false);
     }
+  };
 
+  useEffect(() => {
     startCamera();
 
     return () => {
@@ -83,16 +66,21 @@ export default function SceneDescriptionPage() {
     };
   }, []);
 
-  // Capture frame from video as base64
+  // Capture frame from video as optimized base64
   const captureFrameBase64 = (): string | null => {
     if (!videoRef.current || !hasCamera) return null;
+    const video = videoRef.current;
+    const vw = video.videoWidth || 640;
+    const vh = video.videoHeight || 480;
+    const maxDim = 640;
+    const scale = Math.min(1, maxDim / Math.max(vw, vh));
     const canvas = document.createElement("canvas");
-    canvas.width = videoRef.current.videoWidth || 640;
-    canvas.height = videoRef.current.videoHeight || 480;
+    canvas.width = Math.round(vw * scale);
+    canvas.height = Math.round(vh * scale);
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
-    ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL("image/jpeg", 0.85);
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.7);
   };
 
   // Play hazard alert beep
@@ -153,21 +141,15 @@ export default function SceneDescriptionPage() {
           logActivity("scene", "Scene: Hazard detected", "warning", result.source);
         } else {
           speak(result.description, true);
-          addToast(`Scene analyzed (${result.source === "mock" ? "demo mode" : "Vision API"})`, "success");
+          addToast(getSourceLabel(result.source, "scene").toast, "success");
           logActivity("scene", `Scene: ${result.description.slice(0, 50)}`, "center_focus_strong", result.source);
         }
       } else {
         throw new Error("No camera frame");
       }
     } catch (err) {
-      // Fallback to mock
-      const scene = mockScenes[Math.floor(Math.random() * mockScenes.length)];
-      setDescription(scene.description);
-      setDetectedObjects(scene.objects);
-      setHazards(scene.hazards);
-      setSceneSource("mock-fallback");
-      speak(scene.description, true);
-      addToast("Scene analyzed (demo fallback)", "success");
+      addToast("Could not capture scene from camera. Please hold steadily and try again.", "error");
+      speak("Scene could not be captured. Please ensure your camera has a clear view.", true);
     } finally {
       setIsDescribing(false);
     }
@@ -180,19 +162,65 @@ export default function SceneDescriptionPage() {
     speak("Viewfinder reset. Tap narration to capture a new scene.", true);
   };
 
+  const handleImageAnalyze = async (base64: string) => {
+    setIsDescribing(true);
+    setDetectedObjects([]);
+    setDescription("");
+    setHazards([]);
+    speak("Analyzing uploaded image. Narration starting shortly.", true);
+
+    try {
+      const result = await CompanioAPI.describe(base64);
+      setDescription(result.description);
+      setSceneSource(result.source);
+
+      if (result.objects && result.objects.length > 0) {
+        const mapped: DetectedObject[] = result.objects.map((obj, i) => ({
+          label: obj.name,
+          x: `${10 + (i * 25) % 70}%`,
+          y: `${15 + (i * 20) % 60}%`,
+          w: `${Math.min(30, 15 + i * 3)}%`,
+          h: `${Math.min(40, 20 + i * 5)}%`,
+          confidence: obj.confidence,
+        }));
+        setDetectedObjects(mapped);
+      }
+
+      if (result.hazards && result.hazards.length > 0) {
+        setHazards(result.hazards);
+        playHazardBeep();
+        speak(`Caution! ${result.hazards.join(". ")}`, true);
+        addToast("Hazard detected!", "warning");
+      } else {
+        speak(result.description, true);
+        addToast("Scene narration complete", "success");
+      }
+    } catch (err: any) {
+      console.error(err);
+      addToast("Failed to analyze image", "error");
+    } finally {
+      setIsDescribing(false);
+    }
+  };
+
   return (
-    <div className="flex-grow flex flex-col px-margin-edge py-stack-lg gap-6 max-w-2xl mx-auto w-full">
-      {/* Header info */}
+    <div className="flex-grow flex flex-col px-margin-edge py-stack-lg gap-6 w-full text-on-surface">
+      {/* Title */}
       <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold text-on-surface">Narrate Environment</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-3xl font-bold text-on-surface">Narrate Environment</h1>
+          <span className="text-xs font-bold px-3 py-1 rounded-full border bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
+            Real Camera AI
+          </span>
+        </div>
         <p className="text-lg text-on-surface-variant leading-relaxed">
           Capture your surroundings to get a real-time vocal description of obstacles and paths.
         </p>
       </div>
 
-      {/* Viewfinder frame */}
-      <div className="w-full aspect-video bg-black rounded-2xl overflow-hidden relative border-2 border-outline-variant shadow-lg flex items-center justify-center">
-        {hasCamera ? (
+      {/* Viewfinder or Permission Overlay */}
+      {hasCamera ? (
+        <div className="w-full aspect-video bg-black rounded-3xl overflow-hidden relative border-2 border-outline-variant shadow-lg flex items-center justify-center">
           <video
             ref={videoRef}
             autoPlay
@@ -200,39 +228,39 @@ export default function SceneDescriptionPage() {
             muted
             className="w-full h-full object-cover"
           />
-        ) : (
-          <div className="text-center p-6 text-zinc-400">
-            <span className="material-symbols-outlined text-6xl mb-2 text-zinc-600">
-              videocam_off
-            </span>
-            <p className="text-lg font-semibold">{cameraError || "Loading camera stream..."}</p>
-          </div>
-        )}
 
-        {/* Bounding box overlays */}
-        {detectedObjects.map((obj, i) => (
-          <div
-            key={i}
-            className="absolute border-2 border-primary bg-primary/10 rounded flex flex-col p-1 animate-fade-in"
-            style={{
-              left: obj.x,
-              top: obj.y,
-              width: obj.w,
-              height: obj.h,
-            }}
-          >
-            <span className="bg-primary text-white text-xs font-bold px-1.5 py-0.5 rounded self-start">
-              {obj.label}
-            </span>
-          </div>
-        ))}
+          {/* Bounding box overlays */}
+          {detectedObjects.map((obj, i) => (
+            <div
+              key={i}
+              className="absolute border-2 border-primary bg-primary/10 rounded flex flex-col p-1 animate-fade-in"
+              style={{
+                left: obj.x,
+                top: obj.y,
+                width: obj.w,
+                height: obj.h,
+              }}
+            >
+              <span className="bg-primary text-white text-xs font-bold px-1.5 py-0.5 rounded self-start">
+                {obj.label}
+              </span>
+            </div>
+          ))}
 
-        {isDescribing && (
-          <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-            <div className="w-12 h-12 rounded-full border-4 border-white border-t-transparent animate-spin"></div>
-          </div>
-        )}
-      </div>
+          {isDescribing && (
+            <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+              <div className="w-12 h-12 rounded-full border-4 border-white border-t-transparent animate-spin"></div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <CameraPermissionView
+          onRetry={startCamera}
+          onImageSelected={handleImageAnalyze}
+          title="Camera Permission Required"
+          subtitle="Companio needs camera access to see your surroundings, describe obstacles, and detect hazards live."
+        />
+      )}
 
       {/* Narrative Card */}
       <div className="flex flex-col gap-4">
@@ -259,8 +287,8 @@ export default function SceneDescriptionPage() {
                   Scene Narration
                 </span>
                 {sceneSource && (
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${sceneSource === "google-cloud-vision" ? "bg-emerald-500/10 text-emerald-600" : "bg-amber-500/10 text-amber-600"}`}>
-                    {sceneSource === "google-cloud-vision" ? "Vision API" : "Demo"}
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${REAL_SOURCES.includes(sceneSource) ? "bg-emerald-500/10 text-emerald-600" : "bg-amber-500/10 text-amber-600"}`}>
+                    {getSourceLabel(sceneSource, "scene").badge}
                   </span>
                 )}
               </div>

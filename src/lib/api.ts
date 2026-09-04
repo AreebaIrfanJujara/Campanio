@@ -85,7 +85,7 @@ export const CompanioAPI = {
         text: "Street Sign: Caution, Pedestrian Crossing Ahead. Speed Limit 25 MPH.",
         confidence: 0.85,
         language: "en",
-        source: "offline-fallback",
+        source: "client-fallback",
         isOffline: true,
       };
     }
@@ -121,7 +121,7 @@ export const CompanioAPI = {
           { name: "Table", confidence: 0.8 },
         ],
         hazards: [],
-        source: "offline-fallback",
+        source: "client-fallback",
         isOffline: true,
       };
     }
