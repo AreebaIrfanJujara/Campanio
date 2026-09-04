@@ -9,13 +9,21 @@ import { useSupabaseAuth } from "@/lib/hooks/useSupabaseAuth";
 
 export default function CreateAccountPage() {
   const router = useRouter();
-  const { speak, setUserProfile } = useAccessibility();
+  const { speak, userProfile, setUserProfile } = useAccessibility();
   const { addToast } = useToast();
-  const { signUpWithEmail } = useSupabaseAuth();
+  const { signUpWithEmail, continueAsGuest } = useSupabaseAuth();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+
+  const handleContinueAsGuest = () => {
+    continueAsGuest();
+    setUserProfile({ ...userProfile, name: "Guest User" });
+    speak("Continuing in guest mode. All accessibility tools are unlocked.", true);
+    addToast("Welcome, Guest! All tools unlocked.", "success");
+    router.push("/home");
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -119,6 +127,16 @@ export default function CreateAccountPage() {
           {isLoading ? (
             <div className="w-6 h-6 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
           ) : "Create Account"}
+        </button>
+
+        {/* Continue as Guest Button */}
+        <button
+          onClick={handleContinueAsGuest}
+          type="button"
+          className="w-full h-[56px] rounded-xl flex items-center justify-center gap-2.5 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-700 dark:text-emerald-300 border-2 border-emerald-500/40 font-bold text-base cursor-pointer active:scale-[0.98] transition-all shadow-sm"
+        >
+          <span className="material-symbols-outlined text-2xl">person_play</span>
+          Continue as Guest (Skip Account)
         </button>
       </form>
 

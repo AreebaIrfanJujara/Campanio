@@ -11,7 +11,7 @@ export default function SignInPage() {
   const router = useRouter();
   const { speak, userProfile, setUserProfile } = useAccessibility();
   const { addToast } = useToast();
-  const { signInWithEmail, signInWithGoogle, resetPassword } = useSupabaseAuth();
+  const { signInWithEmail, signInWithGoogle, continueAsGuest, resetPassword } = useSupabaseAuth();
   
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -20,6 +20,14 @@ export default function SignInPage() {
   const [showForgotModal, setShowForgotModal] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotSent, setForgotSent] = useState(false);
+
+  const handleContinueAsGuest = () => {
+    continueAsGuest();
+    setUserProfile({ ...userProfile, name: "Guest User" });
+    speak("Continuing in guest mode. All accessibility tools are unlocked.", true);
+    addToast("Welcome, Guest! All tools unlocked.", "success");
+    router.push("/home");
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -147,6 +155,16 @@ export default function SignInPage() {
             Your Universal Accessibility Companion
           </p>
         </div>
+
+        {/* Continue as Guest Button (Instant No-Login Access) */}
+        <button
+          onClick={handleContinueAsGuest}
+          type="button"
+          className="w-full h-[56px] rounded-xl flex items-center justify-center gap-2.5 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-700 dark:text-emerald-300 border-2 border-emerald-500/40 font-bold text-base cursor-pointer active:scale-[0.98] transition-all shadow-sm"
+        >
+          <span className="material-symbols-outlined text-2xl">person_play</span>
+          Continue as Guest (No Login Required)
+        </button>
 
         {/* Google OAuth Access Button */}
         <button

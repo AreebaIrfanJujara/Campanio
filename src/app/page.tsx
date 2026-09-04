@@ -13,7 +13,7 @@ export default function WelcomePage() {
   // Browsers require a user gesture before allowing speechSynthesis audio — this call may silently no-op on a cold load with zero prior interaction. The tap handler below is the guaranteed-to-work path.
   useEffect(() => {
     speak("Welcome to Companio. Tap anywhere on the screen to begin setup.", true);
-  }, [speak]);
+  }, []);
 
   const handleTapToBegin = () => {
     speak("Beginning setup. Opening permissions request screen.", true);

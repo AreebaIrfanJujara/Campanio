@@ -67,9 +67,9 @@ export const TopAppBar: React.FC = () => {
 
   return (
     <header className="w-full top-0 sticky shadow-sm z-40 bg-surface border-b border-outline-variant transition-colors">
-      <div className="w-full max-w-7xl px-4 md:px-8 mx-auto flex items-center justify-between h-16">
+      <div className="w-full max-w-7xl px-2 sm:px-4 md:px-8 mx-auto flex items-center justify-between h-16">
         {/* Left side: Menu button + Back Button + Logo */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-1.5 sm:gap-2.5">
           {/* Menu Drawer Toggle Button */}
           <button
             onClick={() => {
@@ -78,18 +78,18 @@ export const TopAppBar: React.FC = () => {
             }}
             aria-label="Open navigation menu sidebar"
             title="Navigation Menu"
-            className="flex items-center justify-center w-10 h-10 rounded-2xl bg-surface-container hover:bg-surface-container-high text-on-surface active:scale-95 transition-all cursor-pointer shrink-0"
+            className="flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-surface-container hover:bg-surface-container-high text-on-surface active:scale-95 transition-all cursor-pointer shrink-0"
           >
-            <span className="material-symbols-outlined text-2xl">menu</span>
+            <span className="material-symbols-outlined text-xl sm:text-2xl">menu</span>
           </button>
 
           {showBackButton && (
             <button
               onClick={handleBack}
               aria-label="Go back"
-              className="flex items-center justify-center w-10 h-10 rounded-2xl hover:bg-surface-container text-on-surface-variant active:scale-95 transition-all cursor-pointer shrink-0"
+              className="flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-2xl hover:bg-surface-container text-on-surface-variant active:scale-95 transition-all cursor-pointer shrink-0"
             >
-              <span className="material-symbols-outlined font-semibold text-2xl">arrow_back</span>
+              <span className="material-symbols-outlined font-semibold text-xl sm:text-2xl">arrow_back</span>
             </button>
           )}
 
@@ -97,11 +97,11 @@ export const TopAppBar: React.FC = () => {
           <Link
             href="/home"
             onClick={() => speak("Companio accessibility suite", true)}
-            className="flex items-center gap-2 font-semibold text-2xl text-primary tracking-tight font-display-ocr focus-visible:outline-none cursor-pointer"
+            className="flex items-center gap-1.5 sm:gap-2 font-semibold text-xl sm:text-2xl text-primary tracking-tight font-display-ocr focus-visible:outline-none cursor-pointer"
             aria-label="Companio Wordmark"
           >
-            <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center text-primary shadow-sm shrink-0">
-              <span className="material-symbols-outlined text-2xl">accessibility_new</span>
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-primary/10 flex items-center justify-center text-primary shadow-sm shrink-0">
+              <span className="material-symbols-outlined text-xl sm:text-2xl">accessibility_new</span>
             </div>
             <span className="hidden sm:inline">Companio</span>
           </Link>
@@ -110,14 +110,14 @@ export const TopAppBar: React.FC = () => {
           <button
             onClick={handleStatusClick}
             aria-label={isOnline ? "Online status: Connected" : "Offline status: Local mode active"}
-            className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-extrabold border cursor-pointer transition-colors shrink-0 ${
+            className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-extrabold border cursor-pointer transition-colors shrink-0 ${
               isOnline
                 ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
                 : "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/40 hover:bg-amber-500/25 animate-pulse"
             }`}
           >
             <span
-              className={`w-2 h-2 rounded-full ${
+              className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full ${
                 isOnline ? "bg-emerald-500" : "bg-amber-500"
               }`}
             ></span>
@@ -126,7 +126,7 @@ export const TopAppBar: React.FC = () => {
         </div>
 
         {/* Right side controls: Wake Word Status + Voice Assistant + SOS Trigger + Install + Theme Toggle */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           {/* Active Wake-Word Indicator */}
           {wakeWordActive && isWindowFocused && !["/home/captions", "/home/conversation"].includes(pathname) && (
             <div

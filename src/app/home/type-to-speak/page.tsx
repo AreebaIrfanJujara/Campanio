@@ -32,9 +32,13 @@ export default function TypeToSpeakPage() {
     setPredictions(sugg);
   }, [customText]);
 
-  // Load custom phrases from localStorage and Supabase on mount
+  // Announce page active once on mount
   useEffect(() => {
     speak("Speak for me active. Type a message or tap quick phrases to speak aloud.");
+  }, []);
+
+  // Load custom phrases from localStorage and Supabase on mount/auth change
+  useEffect(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("companio_custom_phrases");
       if (saved) {
@@ -61,7 +65,7 @@ export default function TypeToSpeakPage() {
         }
       }).catch(() => {});
     }
-  }, [user?.id, speak]);
+  }, [user?.id]);
 
   const handleSpeak = (textToSpeak: string) => {
     if (!textToSpeak.trim()) {

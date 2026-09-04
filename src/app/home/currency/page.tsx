@@ -40,11 +40,25 @@ export default function CurrencyScannerPage() {
 
   const startCamera = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
-      });
+      if (videoRef.current && videoRef.current.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach((track) => track.stop());
+      }
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 } },
+          audio: false,
+        });
+      } catch {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      }
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        videoRef.current.setAttribute("playsinline", "true");
+        videoRef.current.setAttribute("webkit-playsinline", "true");
+        videoRef.current.muted = true;
+        videoRef.current.play().catch(() => {});
         setCameraActive(true);
       }
     } catch (e) {
@@ -198,6 +212,14 @@ export default function CurrencyScannerPage() {
             autoPlay
             playsInline
             muted
+            onLoadedMetadata={(e) => {
+              const el = e.currentTarget;
+              el.play().catch(() => {});
+            }}
+            onCanPlay={(e) => {
+              const el = e.currentTarget;
+              el.play().catch(() => {});
+            }}
             className="w-full h-full object-cover"
           />
           <canvas ref={canvasRef} className="hidden" />

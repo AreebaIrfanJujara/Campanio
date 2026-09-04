@@ -208,6 +208,17 @@ export function useSupabaseAuth() {
     return res;
   }, []);
 
+  const continueAsGuest = useCallback(() => {
+    const guestId = 'guest-' + Date.now();
+    const guestUser = { id: guestId, email: 'guest@companio.app', user_metadata: { name: 'Guest User' } };
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('companio_guest_session', JSON.stringify(guestUser));
+    }
+    setSessionCookies('guest-' + guestId);
+    setUser(guestUser as unknown as User);
+    return guestUser;
+  }, []);
+
   const resetPassword = useCallback(async (email: string) => {
     if (!isConfigured) {
       return { data: {}, error: null };
@@ -219,13 +230,15 @@ export function useSupabaseAuth() {
 
   const signOut = useCallback(async () => {
     clearSessionCookies();
-    if (!isConfigured) {
+    if (typeof window !== 'undefined') {
       localStorage.removeItem('companio_guest_session');
-      setUser(null);
+    }
+    setUser(null);
+    if (!isConfigured) {
       return { error: null };
     }
     return supabase.auth.signOut();
   }, []);
 
-  return { user, loading, isConfigured, signInWithGoogle, signInWithEmail, signUpWithEmail, resetPassword, signOut };
+  return { user, loading, isConfigured, continueAsGuest, signInWithGoogle, signInWithEmail, signUpWithEmail, resetPassword, signOut };
 }

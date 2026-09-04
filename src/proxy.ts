@@ -28,20 +28,7 @@ export function proxy(request: NextRequest) {
     sbAccessToken || sbAuthToken || companioSession || hasDynamicSbCookie
   );
 
-  // Check if route requires authentication
-  const isProtected = PROTECTED_PREFIXES.some((prefix) => pathname.startsWith(prefix));
-  if (isProtected && !isAuthenticated) {
-    const loginUrl = new URL("/sign-in", request.url);
-    loginUrl.searchParams.set("redirect", pathname);
-    return NextResponse.redirect(loginUrl);
-  }
-
-  // Redirect authenticated users away from sign-in / signup to home
-  const isAuthRoute = AUTH_ROUTES.some((route) => pathname.startsWith(route));
-  if (isAuthRoute && isAuthenticated) {
-    return NextResponse.redirect(new URL("/home", request.url));
-  }
-
+  // Allow open access to all features — guests can use all tools without requiring login
   return NextResponse.next();
 }
 

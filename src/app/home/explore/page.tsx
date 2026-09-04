@@ -31,13 +31,22 @@ export default function ExploreModePage() {
     speak("Explore objects mode active. Point your camera to detect items around you.");
     async function startCamera() {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment" },
-          audio: false,
-        });
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 } },
+            audio: false,
+          });
+        } catch {
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }
         streamRef.current = stream;
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
+          videoRef.current.setAttribute("playsinline", "true");
+          videoRef.current.setAttribute("webkit-playsinline", "true");
+          videoRef.current.muted = true;
+          videoRef.current.play().catch(() => {});
         }
         setHasCamera(true);
       } catch (err) {
@@ -161,7 +170,21 @@ export default function ExploreModePage() {
       {/* Viewfinder frame */}
       <div className="w-full aspect-video bg-black rounded-2xl overflow-hidden relative border-2 border-outline-variant shadow flex items-center justify-center">
         {hasCamera ? (
-          <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            onLoadedMetadata={(e) => {
+              const el = e.currentTarget;
+              el.play().catch(() => {});
+            }}
+            onCanPlay={(e) => {
+              const el = e.currentTarget;
+              el.play().catch(() => {});
+            }}
+            className="w-full h-full object-cover"
+          />
         ) : (
           <div className="text-center p-6 text-on-surface-variant">
             <span className="material-symbols-outlined text-6xl mb-2 text-outline">videocam_off</span>

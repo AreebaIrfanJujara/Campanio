@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { fetchUserProfile, upsertUserProfile } from "@/lib/supabaseService";
+import { getSharedAudioContext, playAudioData, stopAudioData } from "@/lib/audioManager";
 
 export type PresetType = "visual" | "hearing" | "motor" | "standard";
 
@@ -299,8 +300,23 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
 
     updateVoices();
     window.speechSynthesis.addEventListener("voiceschanged", updateVoices);
+
+    // Prime WebAudio and speech engine on user interaction for mobile autoplay compliance
+    const unlockAudio = () => {
+      getSharedAudioContext();
+      if (window.speechSynthesis && window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
+    };
+    window.addEventListener("touchstart", unlockAudio, { passive: true });
+    window.addEventListener("pointerdown", unlockAudio, { passive: true });
+    window.addEventListener("click", unlockAudio, { passive: true });
+
     return () => {
       window.speechSynthesis.removeEventListener("voiceschanged", updateVoices);
+      window.removeEventListener("touchstart", unlockAudio);
+      window.removeEventListener("pointerdown", unlockAudio);
+      window.removeEventListener("click", unlockAudio);
     };
   }, []);
 
@@ -364,7 +380,7 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
 
     const langPrefix = targetLang.split("-")[0].toLowerCase();
 
-    // Fallback: Browser SpeechSynthesis for standard fallback
+    // Fallback: Browser SpeechSynthesis for offline or direct fallback
     const fallbackToBrowserSynthesis = () => {
       if (typeof window === "undefined" || !window.speechSynthesis) return;
       try {
@@ -403,12 +419,6 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
           } else {
             utterance.voice = matchingVoices[0];
             utterance.pitch = Math.max(0.6, Math.min(1.5, speechPitch));
-          }
-        } else {
-          if (ttsVoice === "neural-m") {
-            utterance.pitch = Math.max(0.5, Math.min(1.1, speechPitch * 0.85));
-          } else if (ttsVoice === "neural-f") {
-            utterance.pitch = Math.max(0.8, Math.min(1.8, speechPitch * 1.15));
           }
         }
 
@@ -450,35 +460,23 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
       try {
         const cacheKey = `${targetLang}_${cleanText}`;
         const cachedUrl = ttsAudioCache.get(cacheKey);
+
         if (cachedUrl && thisSessionId === speechSessionCount) {
-          const audio = new Audio(cachedUrl);
-          audio.volume = 1.0;
-          activeAudioElement = audio;
           setIsSpeaking(true);
-          audio.onended = () => {
-            if (activeAudioElement === audio) {
+          const played = await playAudioData(cachedUrl, () => {
+            if (thisSessionId === speechSessionCount) {
               setIsSpeaking(false);
-              activeAudioElement = null;
             }
-          };
-          audio.onerror = () => {
-            if (activeAudioElement === audio) {
-              setIsSpeaking(false);
-              activeAudioElement = null;
-              fallbackToBrowserSynthesis();
-            }
-          };
-          const playPromise = audio.play();
-          if (playPromise !== undefined) {
-            playPromise.catch(() => {
-              fallbackToBrowserSynthesis();
-            });
+          });
+          if (played) {
+            return;
           }
+          fallbackToBrowserSynthesis();
           return;
         }
 
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 4000);
+        const timeoutId = setTimeout(() => controller.abort(), 3500);
 
         const res = await fetch("/api/tts/speak", {
           method: "POST",
@@ -494,145 +492,33 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
           const data = await res.json();
           if (data.audioUrl && thisSessionId === speechSessionCount) {
             ttsAudioCache.set(cacheKey, data.audioUrl);
-            const audio = new Audio(data.audioUrl);
-            audio.volume = 1.0;
-            activeAudioElement = audio;
             setIsSpeaking(true);
-            audio.onended = () => {
-              if (activeAudioElement === audio) {
+            const played = await playAudioData(data.audioUrl, () => {
+              if (thisSessionId === speechSessionCount) {
                 setIsSpeaking(false);
-                activeAudioElement = null;
               }
-            };
-            audio.onerror = () => {
-              if (activeAudioElement === audio) {
-                setIsSpeaking(false);
-                activeAudioElement = null;
-                fallbackToBrowserSynthesis();
-              }
-            };
-            const playPromise = audio.play();
-            if (playPromise !== undefined) {
-              playPromise.catch(() => {
-                fallbackToBrowserSynthesis();
-              });
+            });
+            if (played) {
+              return;
             }
-            return;
           }
         }
       } catch (err) {
         console.warn("Natural audio stream catch:", err);
       }
-      fallbackToBrowserSynthesis();
+
+      if (thisSessionId === speechSessionCount) {
+        fallbackToBrowserSynthesis();
+      }
     };
 
-    // For non-English languages (e.g. translated speech in es, fr, ar, ur, hi, ja, zh, de), ALWAYS use natural audio stream for authentic native accent and zero delay
-    if (langPrefix !== "en") {
-      playNaturalAudioStream();
-      return;
-    }
-
-    // For English: Try browser SpeechSynthesis with a fast watchdog fallback
-    if (window.speechSynthesis) {
-      let speechStarted = false;
-      const voices: SpeechSynthesisVoice[] = voicesRef.current.length > 0 
-        ? voicesRef.current 
-        : (window.speechSynthesis.getVoices?.() || []);
-
-      const matchingVoices = voices.filter((v) => 
-        v.lang.toLowerCase().replace("_", "-").startsWith("en")
-      );
-
-      try {
-        if (window.speechSynthesis.paused) {
-          window.speechSynthesis.resume();
-        }
-
-        const utterance = new SpeechSynthesisUtterance(cleanText);
-        utterance.volume = 1.0;
-        utterance.rate = Math.max(0.7, Math.min(1.8, speechRate));
-        utterance.lang = "en-US";
-
-        if (matchingVoices.length > 0) {
-          if (ttsVoice === "neural-m") {
-            const maleVoice = matchingVoices.find((v) => 
-              /(david|george|james|mark|richard|thomas|daniel|alex|guy|male|en-us-guy|stefan)/i.test(v.name)
-            );
-            utterance.voice = maleVoice || matchingVoices[0];
-            utterance.pitch = Math.max(0.5, Math.min(1.1, speechPitch * 0.85));
-          } else if (ttsVoice === "neural-f") {
-            const femaleVoice = matchingVoices.find((v) => 
-              /(zira|hazel|samantha|victoria|jenny|female|heera|en-us-jenny|hedda)/i.test(v.name)
-            );
-            utterance.voice = femaleVoice || matchingVoices[0];
-            utterance.pitch = Math.max(0.8, Math.min(1.8, speechPitch * 1.15));
-          } else {
-            utterance.voice = matchingVoices[0];
-            utterance.pitch = Math.max(0.6, Math.min(1.5, speechPitch));
-          }
-        } else {
-          if (ttsVoice === "neural-m") {
-            utterance.pitch = Math.max(0.5, Math.min(1.1, speechPitch * 0.85));
-          } else if (ttsVoice === "neural-f") {
-            utterance.pitch = Math.max(0.8, Math.min(1.8, speechPitch * 1.15));
-          }
-        }
-
-        utterance.onstart = () => {
-          speechStarted = true;
-          if (thisSessionId === speechSessionCount) {
-            setIsSpeaking(true);
-          }
-        };
-
-        utterance.onend = () => {
-          if (thisSessionId === speechSessionCount) {
-            setIsSpeaking(false);
-            activeUtterance = null;
-          }
-        };
-
-        utterance.onerror = (err) => {
-          console.warn("speechSynthesis error, playing natural stream:", err);
-          if (thisSessionId === speechSessionCount) {
-            setIsSpeaking(false);
-            activeUtterance = null;
-            playNaturalAudioStream();
-          }
-        };
-
-        activeUtterance = utterance;
-        (window as any).__companioUtterance = utterance;
-
-        if (window.speechSynthesis.paused) {
-          window.speechSynthesis.resume();
-        }
-
-        window.speechSynthesis.speak(utterance);
-
-        // Watchdog: If Chromium freezes and fails to start speaking within 1200ms, immediately fall back to natural stream
-        setTimeout(() => {
-          if (!speechStarted && thisSessionId === speechSessionCount && !activeAudioElement) {
-            console.warn("SpeechSynthesis watchdog triggered — failing over to natural audio stream");
-            try {
-              window.speechSynthesis.cancel();
-            } catch {}
-            playNaturalAudioStream();
-          }
-        }, 1200);
-
-        return;
-      } catch (err) {
-        console.warn("Direct speech synthesis error:", err);
-      }
-    }
-
-    // Direct fallback: Natural audio stream
+    // Trigger natural speech stream with instant offline fallback
     playNaturalAudioStream();
   }, [voiceGuidanceActive, speechRate, speechPitch, ttsVoice]);
 
   const stopSpeaking = () => {
     if (typeof window !== "undefined") {
+      stopAudioData();
       if (activeAudioElement) {
         try {
           activeAudioElement.pause();

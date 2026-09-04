@@ -80,3 +80,72 @@ export function playHazardAlarm(): void {
     console.warn("playHazardAlarm error:", err);
   }
 }
+
+let activeAudioSource: AudioBufferSourceNode | null = null;
+
+/**
+ * Stop any active WebAudio sound stream
+ */
+export function stopAudioData(): void {
+  if (activeAudioSource) {
+    try {
+      activeAudioSource.stop();
+      activeAudioSource.disconnect();
+    } catch {}
+    activeAudioSource = null;
+  }
+}
+
+/**
+ * Play audio from base64 data URI or ArrayBuffer via WebAudio
+ * Bypasses mobile HTML5 audio autoplay restrictions
+ */
+export async function playAudioData(
+  audioData: string | ArrayBuffer,
+  onEnd?: () => void
+): Promise<boolean> {
+  const ctx = getSharedAudioContext();
+  if (!ctx) return false;
+
+  try {
+    stopAudioData();
+    if (ctx.state === "suspended") {
+      await ctx.resume();
+    }
+
+    let arrayBuffer: ArrayBuffer;
+    if (typeof audioData === "string") {
+      // Clean data URI prefix if present
+      const base64 = audioData.includes(",") ? audioData.split(",")[1] : audioData;
+      const binaryString = atob(base64);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      arrayBuffer = bytes.buffer;
+    } else {
+      arrayBuffer = audioData;
+    }
+
+    const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(ctx.destination);
+    activeAudioSource = source;
+
+    source.onended = () => {
+      if (activeAudioSource === source) {
+        activeAudioSource = null;
+      }
+      onEnd?.();
+    };
+
+    source.start(0);
+    return true;
+  } catch (err) {
+    console.warn("playAudioData WebAudio error:", err);
+    return false;
+  }
+}
+

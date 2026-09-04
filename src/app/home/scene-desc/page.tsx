@@ -40,13 +40,22 @@ export default function SceneDescriptionPage() {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
       }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
-        audio: false,
-      });
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 } },
+          audio: false,
+        });
+      } catch {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      }
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        videoRef.current.setAttribute("playsinline", "true");
+        videoRef.current.setAttribute("webkit-playsinline", "true");
+        videoRef.current.muted = true;
+        videoRef.current.play().catch(() => {});
       }
       setHasCamera(true);
       speak("Camera enabled. Point your lens at your surroundings.", true);
@@ -212,6 +221,14 @@ export default function SceneDescriptionPage() {
             autoPlay
             playsInline
             muted
+            onLoadedMetadata={(e) => {
+              const el = e.currentTarget;
+              el.play().catch(() => {});
+            }}
+            onCanPlay={(e) => {
+              const el = e.currentTarget;
+              el.play().catch(() => {});
+            }}
             className="w-full h-full object-cover"
           />
 
