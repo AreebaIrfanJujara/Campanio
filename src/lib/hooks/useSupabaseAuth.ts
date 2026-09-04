@@ -99,9 +99,29 @@ export function useSupabaseAuth() {
       setUser(guestUser as unknown as User);
       return { data: { user: guestUser as unknown as User }, error: null };
     }
-    const res = await supabase.auth.signInWithPassword({ email, password });
+
+    let res = await supabase.auth.signInWithPassword({ email, password });
+
+    // If Supabase blocked login due to unconfirmed email, auto-confirm immediately via backend Admin API and retry
+    if (res.error && res.error.message && /not confirmed|confirm/i.test(res.error.message)) {
+      try {
+        const confirmRes = await fetch('/api/auth/confirm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+        if (confirmRes.ok) {
+          // Retry sign-in with email now confirmed
+          res = await supabase.auth.signInWithPassword({ email, password });
+        }
+      } catch (err) {
+        console.warn('Auto-confirm attempt failed:', err);
+      }
+    }
+
     if (res.data.session?.access_token) {
       setSessionCookies(res.data.session.access_token);
+      setUser(res.data.user);
     }
     return res;
   }, []);
@@ -116,6 +136,33 @@ export function useSupabaseAuth() {
       return { data: { user: guestUser as unknown as User }, error: null };
     }
 
+    // Step 1: Pre-confirm creation via admin API to completely bypass email verification requirement
+    try {
+      const confirmRes = await fetch('/api/auth/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, name }),
+      });
+
+      if (confirmRes.ok) {
+        const signInRes = await supabase.auth.signInWithPassword({ email, password });
+        if (signInRes.data.session?.access_token) {
+          setSessionCookies(signInRes.data.session.access_token);
+          setUser(signInRes.data.user);
+          if (signInRes.data.user?.id) {
+            upsertUserProfile(signInRes.data.user.id, {
+              name: name || email.split('@')[0] || 'Alex',
+              preset: 'standard',
+            }).catch(() => {});
+          }
+          return { data: { user: signInRes.data.user, session: signInRes.data.session }, error: null };
+        }
+      }
+    } catch {
+      // Fall through to standard sign-up
+    }
+
+    // Step 2: Standard sign up fallback
     const res = await supabase.auth.signUp({
       email,
       password,
@@ -126,25 +173,32 @@ export function useSupabaseAuth() {
       return res;
     }
 
-    // If session is already returned, sync cookies
+    // Auto-confirm if returned user without session
+    if (!res.data.session && res.data.user) {
+      try {
+        await fetch('/api/auth/confirm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+        const signInRes = await supabase.auth.signInWithPassword({ email, password });
+        if (signInRes.data.session?.access_token) {
+          setSessionCookies(signInRes.data.session.access_token);
+          setUser(signInRes.data.user);
+          return { data: { user: signInRes.data.user, session: signInRes.data.session }, error: null };
+        }
+      } catch {}
+    }
+
     if (res.data.session?.access_token) {
       setSessionCookies(res.data.session.access_token);
       setUser(res.data.user);
     } else if (res.data.user) {
-      // If session is not returned (e.g. Supabase returned user only), attempt immediate sign-in
-      const signInRes = await supabase.auth.signInWithPassword({ email, password });
-      if (signInRes.data.session?.access_token) {
-        setSessionCookies(signInRes.data.session.access_token);
-        setUser(signInRes.data.user);
-      } else {
-        // Fallback: set active session cookie for seamless navigation
-        setSessionCookies('user-' + res.data.user.id);
-        setUser(res.data.user);
-      }
+      setSessionCookies('user-' + res.data.user.id);
+      setUser(res.data.user);
     }
 
     if (res.data.user?.id) {
-      // Automatically sync initial profile
       upsertUserProfile(res.data.user.id, {
         name: name || email.split('@')[0] || 'Alex',
         preset: 'standard',
