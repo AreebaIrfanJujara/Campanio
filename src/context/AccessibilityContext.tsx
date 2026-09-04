@@ -341,9 +341,9 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
     const thisSessionId = ++speechSessionCount;
 
     // Determine target language
-    let targetLang = langOverride || "en";
-    if (!langOverride) {
-      if (/[\u0600-\u06FF]/.test(cleanText) || /\b(yaar|baat|suno|kya|hai|karo|shukriya|nahin|nahi|apka|mera|kaise|theek|madad|bhai|salam)\b/i.test(cleanText)) {
+    let targetLang = langOverride || "";
+    if (!targetLang) {
+      if (/[\u0600-\u06FF]/.test(cleanText) || /[\u0679\u0686\u0698\u0691\u06AF\u06BA\u06BE\u06CC]/.test(cleanText) || /\b(yaar|baat|suno|kya|hai|karo|shukriya|nahin|nahi|apka|mera|kaise|theek|madad|bhai|salam)\b/i.test(cleanText)) {
         targetLang = "ur";
       } else if (/[\u0900-\u097F]/.test(cleanText)) {
         targetLang = "hi";
@@ -351,16 +351,99 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
         targetLang = "ja";
       } else if (/[\u4e00-\u9fff]/.test(cleanText)) {
         targetLang = "zh-CN";
-      } else if (/[\u00C0-\u017F¿¡]/.test(cleanText) || /\b(hola|gracias|buenos|dias|tardes|por favor|amigo|como estas)\b/i.test(cleanText)) {
+      } else if (/\b(hola|gracias|buenos|dias|tardes|por favor|amigo|como estas|donde|esta)\b/i.test(cleanText)) {
         targetLang = "es";
-      } else if (/\b(bonjour|merci|oui|non|s'il vous plait)\b/i.test(cleanText)) {
+      } else if (/\b(bonjour|merci|oui|non|s'il vous plait|ou est)\b/i.test(cleanText)) {
         targetLang = "fr";
-      } else if (/\b(danke|bitte|hallo|guten)\b/i.test(cleanText)) {
+      } else if (/\b(danke|bitte|hallo|guten|wo ist)\b/i.test(cleanText)) {
         targetLang = "de";
+      } else {
+        targetLang = "en";
       }
     }
 
     const langPrefix = targetLang.split("-")[0].toLowerCase();
+
+    // Fallback: Browser SpeechSynthesis for standard fallback
+    const fallbackToBrowserSynthesis = () => {
+      if (typeof window === "undefined" || !window.speechSynthesis) return;
+      try {
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+        }
+
+        const utterance = new SpeechSynthesisUtterance(cleanText);
+        utterance.volume = 1.0;
+        utterance.rate = Math.max(0.7, Math.min(1.8, speechRate));
+
+        const ietfTag = targetLang === "ur" ? "ur-PK" : targetLang === "hi" ? "hi-IN" : targetLang === "ja" ? "ja-JP" : targetLang === "zh-CN" ? "zh-CN" : targetLang === "es" ? "es-ES" : targetLang === "fr" ? "fr-FR" : targetLang === "de" ? "de-DE" : "en-US";
+        utterance.lang = ietfTag;
+
+        const voices: SpeechSynthesisVoice[] = voicesRef.current.length > 0 
+          ? voicesRef.current 
+          : (window.speechSynthesis.getVoices?.() || []);
+
+        const matchingVoices = voices.filter((v) => 
+          v.lang.toLowerCase().replace("_", "-").startsWith(langPrefix)
+        );
+
+        if (matchingVoices.length > 0) {
+          if (ttsVoice === "neural-m") {
+            const maleVoice = matchingVoices.find((v) => 
+              /(david|george|james|mark|richard|thomas|daniel|alex|guy|male|diego|jorge|pablo|en-us-guy|stefan)/i.test(v.name)
+            );
+            utterance.voice = maleVoice || matchingVoices[0];
+            utterance.pitch = Math.max(0.5, Math.min(1.1, speechPitch * 0.85));
+          } else if (ttsVoice === "neural-f") {
+            const femaleVoice = matchingVoices.find((v) => 
+              /(zira|hazel|samantha|victoria|jenny|female|heera|carmen|monica|en-us-jenny|hedda)/i.test(v.name)
+            );
+            utterance.voice = femaleVoice || matchingVoices[0];
+            utterance.pitch = Math.max(0.8, Math.min(1.8, speechPitch * 1.15));
+          } else {
+            utterance.voice = matchingVoices[0];
+            utterance.pitch = Math.max(0.6, Math.min(1.5, speechPitch));
+          }
+        } else {
+          if (ttsVoice === "neural-m") {
+            utterance.pitch = Math.max(0.5, Math.min(1.1, speechPitch * 0.85));
+          } else if (ttsVoice === "neural-f") {
+            utterance.pitch = Math.max(0.8, Math.min(1.8, speechPitch * 1.15));
+          }
+        }
+
+        utterance.onstart = () => {
+          if (thisSessionId === speechSessionCount) {
+            setIsSpeaking(true);
+          }
+        };
+
+        utterance.onend = () => {
+          if (thisSessionId === speechSessionCount) {
+            setIsSpeaking(false);
+            activeUtterance = null;
+          }
+        };
+
+        utterance.onerror = () => {
+          if (thisSessionId === speechSessionCount) {
+            setIsSpeaking(false);
+            activeUtterance = null;
+          }
+        };
+
+        activeUtterance = utterance;
+        (window as any).__companioUtterance = utterance;
+
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+        }
+
+        window.speechSynthesis.speak(utterance);
+      } catch (err) {
+        console.warn("Direct browser speech synthesis error:", err);
+      }
+    };
 
     // Helper: Play natural audio stream from server
     const playNaturalAudioStream = async () => {
@@ -382,9 +465,15 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
             if (activeAudioElement === audio) {
               setIsSpeaking(false);
               activeAudioElement = null;
+              fallbackToBrowserSynthesis();
             }
           };
-          audio.play().catch(() => {});
+          const playPromise = audio.play();
+          if (playPromise !== undefined) {
+            playPromise.catch(() => {
+              fallbackToBrowserSynthesis();
+            });
+          }
           return;
         }
 
@@ -419,31 +508,40 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
               if (activeAudioElement === audio) {
                 setIsSpeaking(false);
                 activeAudioElement = null;
+                fallbackToBrowserSynthesis();
               }
             };
-            audio.play().catch(() => {});
+            const playPromise = audio.play();
+            if (playPromise !== undefined) {
+              playPromise.catch(() => {
+                fallbackToBrowserSynthesis();
+              });
+            }
+            return;
           }
         }
       } catch (err) {
         console.warn("Natural audio stream catch:", err);
       }
+      fallbackToBrowserSynthesis();
     };
 
-    // If SpeechSynthesis is available in browser
+    // For non-English languages (e.g. translated speech in es, fr, ar, ur, hi, ja, zh, de), ALWAYS use natural audio stream for authentic native accent and zero delay
+    if (langPrefix !== "en") {
+      playNaturalAudioStream();
+      return;
+    }
+
+    // For English: Try browser SpeechSynthesis with a fast watchdog fallback
     if (window.speechSynthesis) {
+      let speechStarted = false;
       const voices: SpeechSynthesisVoice[] = voicesRef.current.length > 0 
         ? voicesRef.current 
         : (window.speechSynthesis.getVoices?.() || []);
 
       const matchingVoices = voices.filter((v) => 
-        v.lang.toLowerCase().replace("_", "-").startsWith(langPrefix)
+        v.lang.toLowerCase().replace("_", "-").startsWith("en")
       );
-
-      // If non-English language requested and no local browser voice exists, use natural audio stream
-      if (langPrefix !== "en" && matchingVoices.length === 0) {
-        playNaturalAudioStream();
-        return;
-      }
 
       try {
         if (window.speechSynthesis.paused) {
@@ -451,35 +549,28 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
         }
 
         const utterance = new SpeechSynthesisUtterance(cleanText);
-        utterance.volume = 1.0; // 100% full loudness
+        utterance.volume = 1.0;
         utterance.rate = Math.max(0.7, Math.min(1.8, speechRate));
+        utterance.lang = "en-US";
 
-        // Format IETF language tag
-        const ietfTag = targetLang === "ur" ? "ur-PK" : targetLang === "hi" ? "hi-IN" : targetLang === "ja" ? "ja-JP" : targetLang === "zh-CN" ? "zh-CN" : targetLang === "es" ? "es-ES" : targetLang === "fr" ? "fr-FR" : targetLang === "de" ? "de-DE" : "en-US";
-        utterance.lang = ietfTag;
-
-        // Apply Voice Model Profile (Male / Female / System Default)
         if (matchingVoices.length > 0) {
           if (ttsVoice === "neural-m") {
-            // Prefer male voice
             const maleVoice = matchingVoices.find((v) => 
-              /(david|george|james|mark|richard|thomas|daniel|alex|guy|male|diego|jorge|pablo|en-us-guy|stefan)/i.test(v.name)
+              /(david|george|james|mark|richard|thomas|daniel|alex|guy|male|en-us-guy|stefan)/i.test(v.name)
             );
             utterance.voice = maleVoice || matchingVoices[0];
-            utterance.pitch = Math.max(0.5, Math.min(1.1, speechPitch * 0.85)); // Deep resonant male tone
+            utterance.pitch = Math.max(0.5, Math.min(1.1, speechPitch * 0.85));
           } else if (ttsVoice === "neural-f") {
-            // Prefer female voice
             const femaleVoice = matchingVoices.find((v) => 
-              /(zira|hazel|samantha|victoria|jenny|female|heera|carmen|monica|en-us-jenny|hedda)/i.test(v.name)
+              /(zira|hazel|samantha|victoria|jenny|female|heera|en-us-jenny|hedda)/i.test(v.name)
             );
             utterance.voice = femaleVoice || matchingVoices[0];
-            utterance.pitch = Math.max(0.8, Math.min(1.8, speechPitch * 1.15)); // Bright clear female tone
+            utterance.pitch = Math.max(0.8, Math.min(1.8, speechPitch * 1.15));
           } else {
             utterance.voice = matchingVoices[0];
             utterance.pitch = Math.max(0.6, Math.min(1.5, speechPitch));
           }
         } else {
-          // Adjust pitch for male/female simulation if default voice
           if (ttsVoice === "neural-m") {
             utterance.pitch = Math.max(0.5, Math.min(1.1, speechPitch * 0.85));
           } else if (ttsVoice === "neural-f") {
@@ -488,6 +579,7 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
         }
 
         utterance.onstart = () => {
+          speechStarted = true;
           if (thisSessionId === speechSessionCount) {
             setIsSpeaking(true);
           }
@@ -501,7 +593,7 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
         };
 
         utterance.onerror = (err) => {
-          console.warn("speechSynthesis error fallback:", err);
+          console.warn("speechSynthesis error, playing natural stream:", err);
           if (thisSessionId === speechSessionCount) {
             setIsSpeaking(false);
             activeUtterance = null;
@@ -517,13 +609,25 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
         }
 
         window.speechSynthesis.speak(utterance);
+
+        // Watchdog: If Chromium freezes and fails to start speaking within 1200ms, immediately fall back to natural stream
+        setTimeout(() => {
+          if (!speechStarted && thisSessionId === speechSessionCount && !activeAudioElement) {
+            console.warn("SpeechSynthesis watchdog triggered — failing over to natural audio stream");
+            try {
+              window.speechSynthesis.cancel();
+            } catch {}
+            playNaturalAudioStream();
+          }
+        }, 1200);
+
         return;
       } catch (err) {
         console.warn("Direct speech synthesis error:", err);
       }
     }
 
-    // Fallback: Natural audio stream
+    // Direct fallback: Natural audio stream
     playNaturalAudioStream();
   }, [voiceGuidanceActive, speechRate, speechPitch, ttsVoice]);
 

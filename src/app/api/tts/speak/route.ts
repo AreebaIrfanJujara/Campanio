@@ -20,19 +20,27 @@ export async function POST(req: NextRequest) {
     }
 
     const cleanText = text.trim();
-    let detectedLang = lang || "en";
-    
-    // Auto-detect language script or Roman Urdu/Hindi words
-    if (/[\u0600-\u06FF]/.test(cleanText) || /[\u0679\u0686\u0698\u0691\u06AF\u06BA\u06BE\u06CC]/.test(cleanText) || /\b(yaar|baat|suno|kya|hai|karo|shukriya|nahin|nahi|apka|mera|kaise|theek|madad|bhai|kahan|kidhar|salam|namaste)\b/i.test(cleanText)) {
-      detectedLang = "ur";
-    } else if (/[\u0900-\u097F]/.test(cleanText)) {
-      detectedLang = "hi";
-    } else if (/[\u3040-\u30ff]/.test(cleanText)) {
-      detectedLang = "ja";
-    } else if (/[\u4e00-\u9fff]/.test(cleanText)) {
-      detectedLang = "zh-CN";
-    } else if (/[\u00C0-\u017F]/.test(cleanText)) {
-      detectedLang = "es";
+    let detectedLang = lang && lang !== "auto" ? lang : "";
+
+    // Auto-detect language only if no explicit lang was provided
+    if (!detectedLang) {
+      if (/[\u0600-\u06FF]/.test(cleanText) || /[\u0679\u0686\u0698\u0691\u06AF\u06BA\u06BE\u06CC]/.test(cleanText) || /\b(yaar|baat|suno|kya|hai|karo|shukriya|nahin|nahi|apka|mera|kaise|theek|madad|bhai|kahan|kidhar|salam|namaste)\b/i.test(cleanText)) {
+        detectedLang = "ur";
+      } else if (/[\u0900-\u097F]/.test(cleanText)) {
+        detectedLang = "hi";
+      } else if (/[\u3040-\u30ff]/.test(cleanText)) {
+        detectedLang = "ja";
+      } else if (/[\u4e00-\u9fff]/.test(cleanText)) {
+        detectedLang = "zh-CN";
+      } else if (/\b(hola|gracias|buenos|dias|tardes|por favor|amigo|como estas|donde|esta)\b/i.test(cleanText)) {
+        detectedLang = "es";
+      } else if (/\b(bonjour|merci|oui|non|s'il vous plait|ou est)\b/i.test(cleanText)) {
+        detectedLang = "fr";
+      } else if (/\b(danke|bitte|hallo|guten|wo ist)\b/i.test(cleanText)) {
+        detectedLang = "de";
+      } else {
+        detectedLang = "en";
+      }
     }
 
     // Fetch natural TTS stream
