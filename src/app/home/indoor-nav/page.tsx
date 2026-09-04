@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useAccessibility } from "@/context/AccessibilityContext";
 import { wearableBridge } from "@/lib/wearableBridge";
 import { useToast } from "@/context/ToastContext";
+import { playTone } from "@/lib/audioManager";
 
 interface NavWaypoint {
   stepNumber: number;
@@ -77,19 +78,7 @@ export default function IndoorNavPage() {
     const interval = Math.max(400, 1200 - currentStepIndex * 300);
 
     beepIntervalRef.current = setInterval(() => {
-      try {
-        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = "sine";
-        osc.frequency.setValueAtTime(600 + currentStepIndex * 150, audioCtx.currentTime);
-        gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.08);
-      } catch {}
+      playTone(600 + currentStepIndex * 150, 0.08, "sine", 0.15);
     }, interval);
   };
 

@@ -93,7 +93,6 @@ export default function TranslationPage() {
       return;
     }
     setLoading(true);
-    speak("Translating input text...", true);
     try {
       const res = await CompanioAPI.translate(inputText, targetLang);
       setTranslatedText(res.translatedText);
@@ -116,7 +115,6 @@ export default function TranslationPage() {
     setLoading(true);
     setOcrText("");
     setOcrTranslation("");
-    speak("Capturing frame for translation...", true);
 
     try {
       // Capture frame from video
@@ -133,7 +131,7 @@ export default function TranslationPage() {
         const ctx = canvas.getContext("2d");
         if (ctx) {
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          base64 = canvas.toDataURL("image/jpeg", 0.7);
+          base64 = canvas.toDataURL("image/jpeg", 0.75);
         }
       }
 
@@ -219,7 +217,6 @@ export default function TranslationPage() {
 
         if (finalTrans.trim()) {
           setIsListening(false);
-          speak(`Heard: ${finalTrans}. Translating.`, true);
           setLoading(true);
           try {
             const res = await CompanioAPI.translate(finalTrans.trim(), targetLang);

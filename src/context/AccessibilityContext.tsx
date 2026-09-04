@@ -34,6 +34,7 @@ let activeUtterance: SpeechSynthesisUtterance | null = null;
 let activeAudioElement: HTMLAudioElement | null = null;
 let speechDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let speechSessionCount = 0;
+const ttsAudioCache = new Map<string, string>();
 
 const defaultState: PersistedState = {
   theme: "standard",
@@ -364,8 +365,31 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
     // Helper: Play natural audio stream from server
     const playNaturalAudioStream = async () => {
       try {
+        const cacheKey = `${targetLang}_${cleanText}`;
+        const cachedUrl = ttsAudioCache.get(cacheKey);
+        if (cachedUrl && thisSessionId === speechSessionCount) {
+          const audio = new Audio(cachedUrl);
+          audio.volume = 1.0;
+          activeAudioElement = audio;
+          setIsSpeaking(true);
+          audio.onended = () => {
+            if (activeAudioElement === audio) {
+              setIsSpeaking(false);
+              activeAudioElement = null;
+            }
+          };
+          audio.onerror = () => {
+            if (activeAudioElement === audio) {
+              setIsSpeaking(false);
+              activeAudioElement = null;
+            }
+          };
+          audio.play().catch(() => {});
+          return;
+        }
+
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3000); // 3s timeout
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
 
         const res = await fetch("/api/tts/speak", {
           method: "POST",
@@ -380,6 +404,7 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
         if (res.ok) {
           const data = await res.json();
           if (data.audioUrl && thisSessionId === speechSessionCount) {
+            ttsAudioCache.set(cacheKey, data.audioUrl);
             const audio = new Audio(data.audioUrl);
             audio.volume = 1.0;
             activeAudioElement = audio;

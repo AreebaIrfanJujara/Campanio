@@ -8,6 +8,7 @@ import { useActivity } from "@/context/ActivityContext";
 import { wearableBridge } from "@/lib/wearableBridge";
 import { CameraPermissionView } from "@/components/CameraPermissionView";
 import { getSourceLabel, REAL_SOURCES } from "@/lib/sourceLabel";
+import { playHazardAlarm } from "@/lib/audioManager";
 
 interface DetectedObject {
   label: string;
@@ -85,22 +86,7 @@ export default function SceneDescriptionPage() {
 
   // Play hazard alert beep
   const playHazardBeep = () => {
-    if (typeof window !== "undefined") {
-      try {
-        const AudioCtx = window.AudioContext || (window as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-        if (!AudioCtx) return;
-        const audioCtx = new AudioCtx();
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = "square";
-        osc.frequency.setValueAtTime(880, audioCtx.currentTime);
-        gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.3);
-      } catch { /* ignore */ }
-    }
+    playHazardAlarm();
     // Also trigger haptic on wearable device
     wearableBridge.triggerHaptic("hazard");
   };

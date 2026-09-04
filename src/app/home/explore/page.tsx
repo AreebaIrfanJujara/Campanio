@@ -5,6 +5,7 @@ import { useAccessibility } from "@/context/AccessibilityContext";
 import { useToast } from "@/context/ToastContext";
 import { useActivity } from "@/context/ActivityContext";
 import { CompanioAPI } from "@/lib/api";
+import { playTone } from "@/lib/audioManager";
 
 interface ScanLog {
   time: string;
@@ -58,32 +59,25 @@ export default function ExploreModePage() {
 
   const captureFrameBase64 = (): string | null => {
     if (!videoRef.current || !hasCamera) return null;
+    const v = videoRef.current;
+    if (!v.videoWidth || !v.videoHeight) return null;
+
+    const maxDim = 640;
+    const scale = Math.min(1, maxDim / Math.max(v.videoWidth, v.videoHeight));
+    const width = Math.round(v.videoWidth * scale);
+    const height = Math.round(v.videoHeight * scale);
+
     const canvas = document.createElement("canvas");
-    canvas.width = videoRef.current.videoWidth || 640;
-    canvas.height = videoRef.current.videoHeight || 480;
+    canvas.width = width;
+    canvas.height = height;
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
-    ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL("image/jpeg", 0.85);
+    ctx.drawImage(v, 0, 0, width, height);
+    return canvas.toDataURL("image/jpeg", 0.75);
   };
 
   const playBeep = () => {
-    if (typeof window !== "undefined") {
-      try {
-        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = "sine";
-        osc.frequency.setValueAtTime(600, audioCtx.currentTime);
-        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.15);
-      } catch (e) {
-        console.error(e);
-      }
-    }
+    playTone(600, 0.15, "sine", 0.25);
   };
 
   const startExploring = () => {
