@@ -1,88 +1,149 @@
--- ============================================================
--- Companio Accessibility Suite — Supabase Schema
--- Run this in the Supabase SQL editor after creating a project.
--- ============================================================
+-- ==============================================================================
+-- Companio Accessibility Suite — Full Supabase Database Migration & RLS Setup
+-- Run this in your Supabase SQL Editor:
+-- https://supabase.com/dashboard/project/ofnclxhdldqfjsnpmbhv/sql/new
+-- ==============================================================================
 
--- Enable required extensions
+-- 1. Enable UUID Extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
--- ─────────────────────────────────────────────
--- Table: user_profiles
--- Stores per-user accessibility preferences and profile data
--- ─────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS user_profiles (
-  id          UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id     UUID        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  name        TEXT        NOT NULL,
-  preset      TEXT        NOT NULL DEFAULT 'standard',   -- standard | low-vision | deaf | motor
-  font_size   SMALLINT    NOT NULL DEFAULT 3,             -- 1–5 scale
-  high_contrast BOOLEAN   NOT NULL DEFAULT false,
-  tts_enabled BOOLEAN     NOT NULL DEFAULT true,
-  tts_voice   TEXT,
-  lang        TEXT        NOT NULL DEFAULT 'en',
-  emergency_contacts JSONB NOT NULL DEFAULT '[]'::JSONB,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 2. Table: user_profiles
+-- Stores per-user accessibility preferences, presets, voices & emergency contacts
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.user_profiles (
+  id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id             UUID        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  name                TEXT        NOT NULL DEFAULT 'Alex',
+  preset              TEXT        NOT NULL DEFAULT 'standard',   -- standard | visual | hearing | motor
+  font_size           SMALLINT    NOT NULL DEFAULT 3,            -- 1–5 scale
+  high_contrast       BOOLEAN     NOT NULL DEFAULT false,
+  tts_enabled         BOOLEAN     NOT NULL DEFAULT true,
+  tts_voice           TEXT        DEFAULT 'neural-f',
+  speech_rate         NUMERIC(3,1) DEFAULT 1.0,
+  speech_pitch        NUMERIC(3,1) DEFAULT 1.0,
+  caption_size        TEXT        DEFAULT 'md',
+  reduced_motion      BOOLEAN     DEFAULT false,
+  ocr_auto_translate  BOOLEAN     DEFAULT false,
+  lang                TEXT        NOT NULL DEFAULT 'en',
+  emergency_contacts  JSONB       NOT NULL DEFAULT '[]'::JSONB,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- One profile per user
-CREATE UNIQUE INDEX IF NOT EXISTS user_profiles_user_id_idx ON user_profiles(user_id);
+-- Unique index to guarantee one profile per user
+CREATE UNIQUE INDEX IF NOT EXISTS user_profiles_user_id_idx ON public.user_profiles(user_id);
 
--- RLS policies
-ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
+-- Enable Row Level Security (RLS)
+ALTER TABLE public.user_profiles ENABLE ROW LEVEL SECURITY;
 
+-- RLS Policies for user_profiles
+DROP POLICY IF EXISTS "Users can read own profile" ON public.user_profiles;
 CREATE POLICY "Users can read own profile"
-  ON user_profiles FOR SELECT
+  ON public.user_profiles FOR SELECT
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can insert own profile" ON public.user_profiles;
 CREATE POLICY "Users can insert own profile"
-  ON user_profiles FOR INSERT
+  ON public.user_profiles FOR INSERT
   WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can update own profile" ON public.user_profiles;
 CREATE POLICY "Users can update own profile"
-  ON user_profiles FOR UPDATE
+  ON public.user_profiles FOR UPDATE
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can delete own profile" ON public.user_profiles;
+CREATE POLICY "Users can delete own profile"
+  ON public.user_profiles FOR DELETE
   USING (auth.uid() = user_id);
 
--- ─────────────────────────────────────────────
--- Table: user_phrases
--- Custom phrase board entries saved by the user
--- ─────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS user_phrases (
-  id          UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 3. Table: user_phrases
+-- Custom phrase board entries saved by the user (Speak For Me / AAC Board)
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.user_phrases (
+  id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id     UUID        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  label       TEXT        NOT NULL,
   text        TEXT        NOT NULL,
-  category    TEXT        NOT NULL DEFAULT 'custom',  -- emergency | medical | social | custom
+  category    TEXT        NOT NULL DEFAULT 'custom',  -- emergency | medical | navigation | social | custom
   icon        TEXT,
   sort_order  SMALLINT    NOT NULL DEFAULT 0,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS user_phrases_user_id_idx ON user_phrases(user_id);
+CREATE INDEX IF NOT EXISTS user_phrases_user_id_idx ON public.user_phrases(user_id);
 
-ALTER TABLE user_phrases ENABLE ROW LEVEL SECURITY;
+-- Enable RLS
+ALTER TABLE public.user_phrases ENABLE ROW LEVEL SECURITY;
 
+-- RLS Policies for user_phrases
+DROP POLICY IF EXISTS "Users can read own phrases" ON public.user_phrases;
 CREATE POLICY "Users can read own phrases"
-  ON user_phrases FOR SELECT
+  ON public.user_phrases FOR SELECT
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can insert own phrases" ON public.user_phrases;
 CREATE POLICY "Users can insert own phrases"
-  ON user_phrases FOR INSERT
+  ON public.user_phrases FOR INSERT
   WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can update own phrases" ON public.user_phrases;
 CREATE POLICY "Users can update own phrases"
-  ON user_phrases FOR UPDATE
-  USING (auth.uid() = user_id);
+  ON public.user_phrases FOR UPDATE
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can delete own phrases" ON public.user_phrases;
 CREATE POLICY "Users can delete own phrases"
-  ON user_phrases FOR DELETE
+  ON public.user_phrases FOR DELETE
   USING (auth.uid() = user_id);
 
--- ─────────────────────────────────────────────
--- Table: caption_rooms
--- Supabase Realtime caption sync rooms
--- ─────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS caption_rooms (
-  id          UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 4. Table: activity_log
+-- Stores recent user activity across all accessibility tools
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.activity_log (
+  id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  feature     TEXT        NOT NULL,    -- scene | captions | translation | ocr | assistant | explore | currency | navigation | tts
+  title       TEXT        NOT NULL,
+  summary     TEXT        NOT NULL,
+  icon        TEXT,
+  source      TEXT        DEFAULT 'app',
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS activity_log_user_id_idx ON public.activity_log(user_id, created_at DESC);
+
+-- Enable RLS
+ALTER TABLE public.activity_log ENABLE ROW LEVEL SECURITY;
+
+-- RLS Policies for activity_log
+DROP POLICY IF EXISTS "Users can read own activity" ON public.activity_log;
+CREATE POLICY "Users can read own activity"
+  ON public.activity_log FOR SELECT
+  USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can insert own activity" ON public.activity_log;
+CREATE POLICY "Users can insert own activity"
+  ON public.activity_log FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can delete own activity" ON public.activity_log;
+CREATE POLICY "Users can delete own activity"
+  ON public.activity_log FOR DELETE
+  USING (auth.uid() = user_id);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 5. Table: caption_rooms
+-- Supabase Realtime caption synchronization rooms
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.caption_rooms (
+  id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   room_code   TEXT        NOT NULL UNIQUE,
   owner_id    UUID        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   is_active   BOOLEAN     NOT NULL DEFAULT true,
@@ -90,50 +151,29 @@ CREATE TABLE IF NOT EXISTS caption_rooms (
   expires_at  TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '2 hours')
 );
 
-CREATE INDEX IF NOT EXISTS caption_rooms_code_idx ON caption_rooms(room_code);
+CREATE INDEX IF NOT EXISTS caption_rooms_code_idx ON public.caption_rooms(room_code);
 
-ALTER TABLE caption_rooms ENABLE ROW LEVEL SECURITY;
+-- Enable RLS
+ALTER TABLE public.caption_rooms ENABLE ROW LEVEL SECURITY;
 
+-- RLS Policies for caption_rooms
+DROP POLICY IF EXISTS "Room owner can manage room" ON public.caption_rooms;
 CREATE POLICY "Room owner can manage room"
-  ON caption_rooms
+  ON public.caption_rooms
   USING (auth.uid() = owner_id);
 
+DROP POLICY IF EXISTS "Authenticated users can read active rooms" ON public.caption_rooms;
 CREATE POLICY "Authenticated users can read active rooms"
-  ON caption_rooms FOR SELECT
+  ON public.caption_rooms FOR SELECT
   TO authenticated
   USING (is_active = true AND expires_at > NOW());
 
--- ─────────────────────────────────────────────
--- Table: activity_log
--- Stores recent user activity (for the dashboard feed)
--- ─────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS activity_log (
-  id          UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id     UUID        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  feature     TEXT        NOT NULL,    -- scene | captions | translation | ocr | assistant
-  summary     TEXT        NOT NULL,
-  icon        TEXT,
-  source      TEXT,                    -- api | offline-fallback | mock
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 6. Functions & Triggers
+-- ─────────────────────────────────────────────────────────────────────────────
 
-CREATE INDEX IF NOT EXISTS activity_log_user_id_idx ON activity_log(user_id, created_at DESC);
-
-ALTER TABLE activity_log ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users can read own activity"
-  ON activity_log FOR SELECT
-  USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can insert own activity"
-  ON activity_log FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
-
--- ─────────────────────────────────────────────
--- Function: update_updated_at
--- Auto-set updated_at on user_profiles update
--- ─────────────────────────────────────────────
-CREATE OR REPLACE FUNCTION update_updated_at()
+-- 6A. Auto-update updated_at timestamp on user_profiles update
+CREATE OR REPLACE FUNCTION public.update_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
   NEW.updated_at = NOW();
@@ -141,6 +181,57 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE OR REPLACE TRIGGER set_updated_at
-  BEFORE UPDATE ON user_profiles
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DROP TRIGGER IF EXISTS set_updated_at ON public.user_profiles;
+CREATE TRIGGER set_updated_at
+  BEFORE UPDATE ON public.user_profiles
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+
+-- 6B. Automatically create a user_profiles entry when a user signs up
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.user_profiles (user_id, name)
+  VALUES (
+    NEW.id,
+    COALESCE(NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1), 'Alex')
+  )
+  ON CONFLICT (user_id) DO NOTHING;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 7. Realtime Publications
+-- Enable realtime updates for broadcast captions and phrase sync
+-- ─────────────────────────────────────────────────────────────────────────────
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND tablename = 'caption_rooms'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.caption_rooms;
+  END IF;
+  
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND tablename = 'user_phrases'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.user_phrases;
+  END IF;
+  
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND tablename = 'activity_log'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.activity_log;
+  END IF;
+EXCEPTION
+  WHEN OTHERS THEN
+    RAISE NOTICE 'Realtime publication setup skipped or already active.';
+END $$;

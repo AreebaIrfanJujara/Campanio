@@ -5,8 +5,11 @@ import { useAccessibility } from "@/context/AccessibilityContext";
 import { Soundwave } from "@/components/Soundwave";
 import { useToast } from "@/context/ToastContext";
 import { getPredictiveSuggestions } from "@/lib/predictivePhrases";
+import { useSupabaseAuth } from "@/lib/hooks/useSupabaseAuth";
+import { fetchUserPhrases, createUserPhrase, deleteUserPhrase } from "@/lib/supabaseService";
 
 interface Preset {
+  id?: string;
   text: string;
   label: string;
 }
@@ -14,6 +17,7 @@ interface Preset {
 export default function TypeToSpeakPage() {
   const { speak, stopSpeaking, isSpeaking, userProfile } = useAccessibility();
   const { addToast } = useToast();
+  const { user } = useSupabaseAuth();
   
   const [customText, setCustomText] = useState<string>("");
   const [newPhraseLabel, setNewPhraseLabel] = useState<string>("");
@@ -28,8 +32,9 @@ export default function TypeToSpeakPage() {
     setPredictions(sugg);
   }, [customText]);
 
-  // Load custom phrases from localStorage on mount
+  // Load custom phrases from localStorage and Supabase on mount
   useEffect(() => {
+    speak("Speak for me active. Type a message or tap quick phrases to speak aloud.");
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("companio_custom_phrases");
       if (saved) {
@@ -40,7 +45,23 @@ export default function TypeToSpeakPage() {
         }
       }
     }
-  }, []);
+
+    if (user?.id) {
+      fetchUserPhrases(user.id).then((dbPhrases) => {
+        if (dbPhrases && dbPhrases.length > 0) {
+          const mapped = dbPhrases.map((p) => ({
+            id: p.id,
+            label: p.label,
+            text: p.text,
+          }));
+          setCustomPhrases(mapped);
+          if (typeof window !== "undefined") {
+            localStorage.setItem("companio_custom_phrases", JSON.stringify(mapped));
+          }
+        }
+      }).catch(() => {});
+    }
+  }, [user?.id, speak]);
 
   const handleSpeak = (textToSpeak: string) => {
     if (!textToSpeak.trim()) {
@@ -71,14 +92,16 @@ export default function TypeToSpeakPage() {
     speak(suggestion, true);
   };
 
-  const handleAddCustomPhrase = (e: React.FormEvent) => {
+  const handleAddCustomPhrase = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPhraseLabel || !newPhraseText) {
       speak("Please fill in both label and text inputs.", true);
       return;
     }
 
-    const updated = [...customPhrases, { label: newPhraseLabel, text: newPhraseText }];
+    const tempId = `temp-${Date.now()}`;
+    const newEntry: Preset = { id: tempId, label: newPhraseLabel, text: newPhraseText };
+    const updated = [...customPhrases, newEntry];
     setCustomPhrases(updated);
     if (typeof window !== "undefined") {
       localStorage.setItem("companio_custom_phrases", JSON.stringify(updated));
@@ -89,16 +112,41 @@ export default function TypeToSpeakPage() {
     setNewPhraseLabel("");
     setNewPhraseText("");
     setIsAdding(false);
+
+    if (user?.id) {
+      try {
+        const created = await createUserPhrase(user.id, {
+          label: newEntry.label,
+          text: newEntry.text,
+        });
+        if (created?.id) {
+          setCustomPhrases((prev) =>
+            prev.map((p) => (p.id === tempId ? { ...p, id: created.id } : p))
+          );
+        }
+      } catch (err) {
+        console.warn("Supabase phrase save error:", err);
+      }
+    }
   };
 
-  const handleDeleteCustomPhrase = (index: number, e: React.MouseEvent) => {
+  const handleDeleteCustomPhrase = async (index: number, e: React.MouseEvent) => {
     e.stopPropagation();
+    const phraseToDelete = customPhrases[index];
     const updated = customPhrases.filter((_, idx) => idx !== index);
     setCustomPhrases(updated);
     if (typeof window !== "undefined") {
       localStorage.setItem("companio_custom_phrases", JSON.stringify(updated));
     }
     speak("Custom phrase deleted", true);
+
+    if (user?.id && phraseToDelete?.id && !phraseToDelete.id.startsWith("temp-")) {
+      try {
+        await deleteUserPhrase(phraseToDelete.id, user.id);
+      } catch (err) {
+        console.warn("Supabase phrase delete error:", err);
+      }
+    }
   };
 
   const categories = [

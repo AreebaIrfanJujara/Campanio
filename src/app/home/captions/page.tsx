@@ -48,6 +48,7 @@ export default function CaptionsPage() {
 
   // Subscribe to realtime broadcast captions from other devices
   useEffect(() => {
+    speak("Live captions active. Listening for surrounding voices.", true);
     const unsubscribe = realtimeCaptions.subscribe((msg: CaptionMessage) => {
       setCaptions((prev) => {
         if (prev.length > 0 && prev[prev.length - 1].text === msg.text) return prev;

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import { upsertUserProfile } from '@/lib/supabaseService';
 import type { User } from '@supabase/supabase-js';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -114,14 +115,42 @@ export function useSupabaseAuth() {
       setUser(guestUser as unknown as User);
       return { data: { user: guestUser as unknown as User }, error: null };
     }
+
     const res = await supabase.auth.signUp({
       email,
       password,
       options: { data: { name: name || '' } },
     });
+
+    if (res.error) {
+      return res;
+    }
+
+    // If session is already returned, sync cookies
     if (res.data.session?.access_token) {
       setSessionCookies(res.data.session.access_token);
+      setUser(res.data.user);
+    } else if (res.data.user) {
+      // If session is not returned (e.g. Supabase returned user only), attempt immediate sign-in
+      const signInRes = await supabase.auth.signInWithPassword({ email, password });
+      if (signInRes.data.session?.access_token) {
+        setSessionCookies(signInRes.data.session.access_token);
+        setUser(signInRes.data.user);
+      } else {
+        // Fallback: set active session cookie for seamless navigation
+        setSessionCookies('user-' + res.data.user.id);
+        setUser(res.data.user);
+      }
     }
+
+    if (res.data.user?.id) {
+      // Automatically sync initial profile
+      upsertUserProfile(res.data.user.id, {
+        name: name || email.split('@')[0] || 'Alex',
+        preset: 'standard',
+      }).catch(() => {});
+    }
+
     return res;
   }, []);
 

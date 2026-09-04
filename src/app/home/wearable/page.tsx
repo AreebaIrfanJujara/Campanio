@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useAccessibility } from "@/context/AccessibilityContext";
 import { wearableBridge, HapticPatternType } from "@/lib/wearableBridge";
 import { useToast } from "@/context/ToastContext";
@@ -12,6 +12,10 @@ export default function WearablePage() {
   const [paired, setPaired] = useState<boolean>(true);
   const [lastHaptic, setLastHaptic] = useState<string>("None");
   const [watchMessage, setWatchMessage] = useState<string>("Companio Watch Sync Active");
+
+  useEffect(() => {
+    speak("Wearable and smartwatch bridge active. Connected to Companio wearable.");
+  }, []);
 
   const handleTestHaptic = (type: HapticPatternType, label: string) => {
     wearableBridge.triggerHaptic(type);

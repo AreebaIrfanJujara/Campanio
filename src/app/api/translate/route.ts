@@ -12,7 +12,10 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { text, targetLanguage, sourceLanguage = "en" } = await req.json();
+    const body = await req.json();
+    const text = body.text;
+    const targetLanguage = body.targetLanguage || body.targetLang;
+    const sourceLanguage = body.sourceLanguage || body.sourceLang || "en";
 
     if (!text || !targetLanguage) {
       const res = NextResponse.json({ error: "Missing text or targetLanguage in request body" }, { status: 400 });

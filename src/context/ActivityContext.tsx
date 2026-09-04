@@ -1,10 +1,12 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { supabase } from "@/lib/supabase";
+import { fetchUserActivities, logUserActivity, clearUserActivities } from "@/lib/supabaseService";
 
 export interface ActivityEntry {
   id: string;
-  type: "ocr" | "scene" | "captions" | "tts" | "translation" | "conversation" | "explore" | "assistant";
+  type: "ocr" | "scene" | "captions" | "tts" | "translation" | "conversation" | "explore" | "assistant" | "currency" | "navigation";
   title: string;
   icon: string;
   timestamp: number;
@@ -24,21 +26,68 @@ const ActivityContext = createContext<ActivityContextType | undefined>(undefined
 
 export const ActivityProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [activities, setActivities] = useState<ActivityEntry[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
-  // Load from localStorage on mount
+  // Load from localStorage on mount and check Supabase session
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const parsed: ActivityEntry[] = JSON.parse(raw);
-        // Only keep entries from last 24 hours
-        const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+        const cutoff = Date.now() - 48 * 60 * 60 * 1000;
         const filtered = parsed.filter((a) => a.timestamp > cutoff);
         setActivities(filtered);
       }
     } catch (e) {
       console.error("Failed to load activity history", e);
     }
+
+    supabase.auth.getSession().then(({ data }) => {
+      const uid = data.session?.user?.id;
+      if (uid) {
+        setCurrentUserId(uid);
+        fetchUserActivities(uid, MAX_ENTRIES).then((dbLogs) => {
+          if (dbLogs && dbLogs.length > 0) {
+            const mapped: ActivityEntry[] = dbLogs.map((l) => ({
+              id: l.id || `db-${Date.now()}`,
+              type: (l.feature as ActivityEntry["type"]) || "assistant",
+              title: l.title || l.summary || "Accessibility action",
+              icon: l.icon || "bolt",
+              timestamp: l.created_at ? new Date(l.created_at).getTime() : Date.now(),
+              summary: l.summary,
+            }));
+            setActivities(mapped);
+            try {
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(mapped));
+            } catch {}
+          }
+        }).catch(() => {});
+      }
+    }).catch(() => {});
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      const uid = session?.user?.id || null;
+      setCurrentUserId(uid);
+      if (uid) {
+        fetchUserActivities(uid, MAX_ENTRIES).then((dbLogs) => {
+          if (dbLogs && dbLogs.length > 0) {
+            const mapped: ActivityEntry[] = dbLogs.map((l) => ({
+              id: l.id || `db-${Date.now()}`,
+              type: (l.feature as ActivityEntry["type"]) || "assistant",
+              title: l.title || l.summary || "Accessibility action",
+              icon: l.icon || "bolt",
+              timestamp: l.created_at ? new Date(l.created_at).getTime() : Date.now(),
+              summary: l.summary,
+            }));
+            setActivities(mapped);
+          }
+        }).catch(() => {});
+      }
+    });
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
   }, []);
 
   // Persist whenever activities change
@@ -61,14 +110,27 @@ export const ActivityProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         summary,
       };
       setActivities((prev) => [entry, ...prev].slice(0, MAX_ENTRIES));
+
+      if (currentUserId) {
+        logUserActivity(currentUserId, {
+          feature: type,
+          title,
+          summary: summary || title,
+          icon,
+          source: "app",
+        }).catch(() => {});
+      }
     },
-    []
+    [currentUserId]
   );
 
   const clearActivity = useCallback(() => {
     setActivities([]);
     localStorage.removeItem(STORAGE_KEY);
-  }, []);
+    if (currentUserId) {
+      clearUserActivities(currentUserId).catch(() => {});
+    }
+  }, [currentUserId]);
 
   return (
     <ActivityContext.Provider value={{ activities, logActivity, clearActivity }}>

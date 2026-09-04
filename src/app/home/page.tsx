@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAccessibility, PresetType } from "@/context/AccessibilityContext";
@@ -64,6 +64,10 @@ export default function HomePage() {
   const { activities } = useActivity();
   const [activeHazard, setActiveHazard] = useState<HazardScenario | null>(null);
   const [hazardIndex, setHazardIndex] = useState<number>(0);
+
+  useEffect(() => {
+    speak("Companio Home. Select a tool to begin.");
+  }, []);
 
   const allModules = [
     {

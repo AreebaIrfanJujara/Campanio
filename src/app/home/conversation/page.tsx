@@ -28,6 +28,7 @@ export default function ConversationModePage() {
 
   // Subscribe to Realtime Sync from other paired screen
   useEffect(() => {
+    speak("Two-way conversation mode active. Split screen view ready.", true);
     const unsubscribe = realtimeCaptions.subscribe((msg: CaptionMessage) => {
       if (msg.speaker === "them") {
         setThemCaptions((prev) => [...prev, msg.text]);

@@ -50,3 +50,18 @@ venv/
 env/
 *.egg-info/
 dist/
+
+# Android build outputs
+/android/app/build/
+/android/build/
+/android/.gradle/
+*.apk
+*.aab
+
+# JVM crash logs
+hs_err_pid*.log
+replay_pid*.log
+
+# Audit/testing screenshots
+audit_*.png
+shot-*.png

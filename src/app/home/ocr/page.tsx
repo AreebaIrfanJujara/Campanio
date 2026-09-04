@@ -163,7 +163,7 @@ export default function OCRPage() {
     try {
       const result = await CompanioAPI.translate(scannedText, targetLang);
       setTranslatedText(result.translatedText);
-      speak(`Translation complete: ${result.translatedText}`, true);
+      speak(result.translatedText, true, targetLang);
       addToast("Translation complete", "success");
     } catch (e) {
       console.error(e);
@@ -312,7 +312,7 @@ export default function OCRPage() {
                           try {
                             const result = await CompanioAPI.translate(scannedText, l.code);
                             setTranslatedText(result.translatedText);
-                            speak(`Translation in ${l.name}: ${result.translatedText}`, true);
+                            speak(result.translatedText, true, l.code);
                             addToast(`Translated to ${l.name}`, "success");
                           } catch {
                             addToast("Translation failed", "error");
@@ -385,7 +385,7 @@ export default function OCRPage() {
                         <span className="material-symbols-outlined text-base">content_copy</span>
                       </button>
                       <button
-                        onClick={() => speak(translatedText, true)}
+                        onClick={() => speak(translatedText, true, targetLang)}
                         className="w-9 h-9 rounded-full bg-primary text-white flex items-center justify-center hover:bg-primary-container cursor-pointer shadow-sm"
                         aria-label="Read translation aloud"
                       >

@@ -14,7 +14,7 @@ import { useRouter } from "next/navigation";
 export default function SettingsPage() {
   const router = useRouter();
   const { addToast } = useToast();
-  const { signOut } = useSupabaseAuth();
+  const { user, isConfigured, signOut } = useSupabaseAuth();
   const { clearActivity } = useActivity();
   const { isOnline, isInstallable, isInstalled, installPWA, serviceWorkerReady } = useOffline();
 
@@ -51,6 +51,7 @@ export default function SettingsPage() {
   const [zeroRetentionMode, setZeroRetentionMode] = useState(true);
 
   useEffect(() => {
+    speak("Accessibility and voice settings.");
     OfflineStorage.getStorageEstimate().then((stats) => {
       if (stats) setStorageStats(stats);
     });
@@ -588,19 +589,38 @@ export default function SettingsPage() {
         </section>
 
         {/* Account and Sign out */}
-        <section className="bg-surface-container rounded-3xl p-6 border border-outline-variant flex flex-col gap-4">
-          <h2 className="text-sm font-black uppercase tracking-wider text-on-surface-variant border-b border-outline-variant pb-2">
-            Account Management
-          </h2>
-          <div className="flex flex-col gap-4 py-2 text-left">
-            <div>
-              <span className="font-bold text-base text-on-surface block">User Status</span>
-              <span className="text-base text-on-surface-variant">Logged in as guest account</span>
+        <section className="bg-surface-container rounded-3xl p-6 border border-outline-variant flex flex-col gap-4 shadow-sm">
+          <div className="flex items-center justify-between border-b border-outline-variant pb-2">
+            <h2 className="text-sm font-black uppercase tracking-wider text-on-surface-variant">
+              Account &amp; Cloud Sync
+            </h2>
+            <div className="flex items-center gap-1.5">
+              <span className={`w-2.5 h-2.5 rounded-full ${isConfigured ? "bg-emerald-500 animate-pulse" : "bg-blue-500"}`}></span>
+              <span className="text-xs font-bold text-on-surface">
+                {isConfigured ? "Supabase Cloud" : "Local Mode"}
+              </span>
+            </div>
+          </div>
+          
+          <div className="flex flex-col gap-3 py-1 text-left">
+            <div className="bg-surface p-4 rounded-2xl border border-outline-variant flex flex-col gap-1">
+              <span className="text-xs font-black uppercase tracking-wider text-on-surface-variant">
+                Active Session
+              </span>
+              <span className="font-extrabold text-lg text-on-surface break-all">
+                {user?.email || (user as any)?.user_metadata?.name || "Guest Account"}
+              </span>
+              <span className="text-xs text-on-surface-variant flex items-center gap-1 mt-0.5">
+                <span className="material-symbols-outlined text-sm text-primary">cloud_done</span>
+                {isConfigured
+                  ? "Preferences & custom phrases auto-sync with Supabase"
+                  : "Running in local offline mode"}
+              </span>
             </div>
             
             <button
               onClick={handleSignOut}
-              className="w-full h-[56px] border-2 border-red-500 text-red-500 hover:bg-red-500/10 font-bold text-base rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-colors active:scale-95"
+              className="w-full h-[56px] border-2 border-red-500 text-red-500 hover:bg-red-500/10 font-bold text-base rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-colors active:scale-95 mt-1"
             >
               <span className="material-symbols-outlined">logout</span>
               Sign Out Account

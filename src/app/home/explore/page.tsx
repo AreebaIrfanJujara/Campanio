@@ -27,6 +27,7 @@ export default function ExploreModePage() {
 
   // Request camera stream
   useEffect(() => {
+    speak("Explore objects mode active. Point your camera to detect items around you.");
     async function startCamera() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({

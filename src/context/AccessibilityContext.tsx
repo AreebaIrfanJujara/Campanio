@@ -1,6 +1,8 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
+import { supabase } from "@/lib/supabase";
+import { fetchUserProfile, upsertUserProfile } from "@/lib/supabaseService";
 
 export type PresetType = "visual" | "hearing" | "motor" | "standard";
 
@@ -78,7 +80,7 @@ interface AccessibilityContextType {
   userProfile: UserProfile;
   setUserProfile: (profile: UserProfile) => void;
   applyPreset: (preset: PresetType) => void;
-  speak: (text: string, force?: boolean) => void;
+  speak: (text: string, force?: boolean, lang?: string) => void;
   stopSpeaking: () => void;
   isSpeaking: boolean;
   isAssistantOpen: boolean;
@@ -115,6 +117,8 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
   const [ttsVoice, setTtsVoice] = useState<string>(defaultState.ttsVoice);
   const [ocrAutoTranslate, setOcrAutoTranslate] = useState<boolean>(defaultState.ocrAutoTranslate);
 
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
   // Hydrate from localStorage on mount
   useEffect(() => {
     const saved = loadPersistedState();
@@ -130,9 +134,62 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
     setTtsVoice(saved.ttsVoice);
     setOcrAutoTranslate(saved.ocrAutoTranslate);
     setInitialized(true);
+
+    // Sync from Supabase if logged in
+    supabase.auth.getSession().then(({ data }) => {
+      const uid = data.session?.user?.id;
+      if (uid) {
+        setCurrentUserId(uid);
+        fetchUserProfile(uid).then((prof) => {
+          if (prof) {
+            if (prof.name || prof.preset) {
+              setUserProfile({
+                name: prof.name || saved.userProfile.name,
+                preset: (prof.preset as PresetType) || saved.userProfile.preset,
+              });
+            }
+            if (prof.high_contrast) setTheme("high-contrast");
+            if (prof.speech_rate) setSpeechRate(Number(prof.speech_rate));
+            if (prof.speech_pitch) setSpeechPitch(Number(prof.speech_pitch));
+            if (prof.caption_size) setCaptionSize(prof.caption_size as CaptionSize);
+            if (prof.reduced_motion !== undefined) setReducedMotion(prof.reduced_motion);
+            if (prof.tts_voice) setTtsVoice(prof.tts_voice);
+            if (prof.ocr_auto_translate !== undefined) setOcrAutoTranslate(prof.ocr_auto_translate);
+          }
+        }).catch(() => {});
+      }
+    }).catch(() => {});
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      const uid = session?.user?.id || null;
+      setCurrentUserId(uid);
+      if (uid) {
+        fetchUserProfile(uid).then((prof) => {
+          if (prof) {
+            if (prof.name || prof.preset) {
+              setUserProfile({
+                name: prof.name || "Alex",
+                preset: (prof.preset as PresetType) || "standard",
+              });
+            }
+            if (prof.high_contrast) setTheme("high-contrast");
+            if (prof.speech_rate) setSpeechRate(Number(prof.speech_rate));
+            if (prof.speech_pitch) setSpeechPitch(Number(prof.speech_pitch));
+            if (prof.caption_size) setCaptionSize(prof.caption_size as CaptionSize);
+            if (prof.reduced_motion !== undefined) setReducedMotion(prof.reduced_motion);
+            if (prof.tts_voice) setTtsVoice(prof.tts_voice);
+            if (prof.ocr_auto_translate !== undefined) setOcrAutoTranslate(prof.ocr_auto_translate);
+          }
+        }).catch(() => {});
+      }
+    });
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
   }, []);
 
-  // Persist state changes to localStorage
+  // Persist state changes to localStorage and Supabase
   useEffect(() => {
     if (!initialized) return;
     const state: PersistedState = {
@@ -153,7 +210,25 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
     } catch (e) {
       console.error("Failed to persist accessibility state", e);
     }
-  }, [initialized, theme, voiceVolume, speechRate, speechPitch, voiceGuidanceActive, wakeWordActive, userProfile, captionSize, reducedMotion, ttsVoice, ocrAutoTranslate]);
+
+    // Sync to Supabase in background if user is authenticated
+    if (currentUserId) {
+      const timer = setTimeout(() => {
+        upsertUserProfile(currentUserId, {
+          name: userProfile.name,
+          preset: userProfile.preset,
+          high_contrast: theme === "high-contrast",
+          speech_rate: speechRate,
+          speech_pitch: speechPitch,
+          caption_size: captionSize,
+          reduced_motion: reducedMotion,
+          tts_voice: ttsVoice,
+          ocr_auto_translate: ocrAutoTranslate,
+        }).catch(() => {});
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [initialized, currentUserId, theme, voiceVolume, speechRate, speechPitch, voiceGuidanceActive, wakeWordActive, userProfile, captionSize, reducedMotion, ttsVoice, ocrAutoTranslate]);
 
   // Apply theme to document root and body — each theme class is managed independently
   useEffect(() => {
@@ -246,7 +321,7 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
-  const speak = useCallback((text: string, force = false) => {
+  const speak = useCallback((text: string, force = false, langOverride?: string) => {
     if (typeof window === "undefined") return;
 
     if (!voiceGuidanceActive && !force) return;
@@ -258,33 +333,56 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
       clearTimeout(speechDebounceTimer);
     }
 
-    // Cancel any active speech or audio immediately to prevent echoing or repetition
+    // Cancel any active speech or audio immediately to prevent echoing or overlapping
     stopSpeaking();
 
-    // Increment speech session token so stale async calls are ignored
+    // Increment speech session token so stale calls are ignored
     const thisSessionId = ++speechSessionCount;
 
-    // Create audio instance synchronously on user click gesture
-    const audio = new Audio();
-    audio.volume = 1.0;
-    activeAudioElement = audio;
+    // Determine target language
+    let targetLang = langOverride || "en";
+    if (!langOverride) {
+      if (/[\u0600-\u06FF]/.test(cleanText) || /\b(yaar|baat|suno|kya|hai|karo|shukriya|nahin|nahi|apka|mera|kaise|theek|madad|bhai|salam)\b/i.test(cleanText)) {
+        targetLang = "ur";
+      } else if (/[\u0900-\u097F]/.test(cleanText)) {
+        targetLang = "hi";
+      } else if (/[\u3040-\u30ff]/.test(cleanText)) {
+        targetLang = "ja";
+      } else if (/[\u4e00-\u9fff]/.test(cleanText)) {
+        targetLang = "zh-CN";
+      } else if (/[\u00C0-\u017F¿¡]/.test(cleanText) || /\b(hola|gracias|buenos|dias|tardes|por favor|amigo|como estas)\b/i.test(cleanText)) {
+        targetLang = "es";
+      } else if (/\b(bonjour|merci|oui|non|s'il vous plait)\b/i.test(cleanText)) {
+        targetLang = "fr";
+      } else if (/\b(danke|bitte|hallo|guten)\b/i.test(cleanText)) {
+        targetLang = "de";
+      }
+    }
 
-    // Use high-fidelity natural audio speech via backend endpoint
-    (async () => {
+    const langPrefix = targetLang.split("-")[0].toLowerCase();
+
+    // Helper: Play natural audio stream from server
+    const playNaturalAudioStream = async () => {
       try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000); // 3s timeout
+
         const res = await fetch("/api/tts/speak", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: cleanText })
+          body: JSON.stringify({ text: cleanText, lang: targetLang }),
+          signal: controller.signal
         });
-        
-        // If another speak() was called while fetching, abort this one
+        clearTimeout(timeoutId);
+
         if (thisSessionId !== speechSessionCount) return;
 
         if (res.ok) {
           const data = await res.json();
           if (data.audioUrl && thisSessionId === speechSessionCount) {
-            audio.src = data.audioUrl;
+            const audio = new Audio(data.audioUrl);
+            audio.volume = 1.0;
+            activeAudioElement = audio;
             setIsSpeaking(true);
             audio.onended = () => {
               if (activeAudioElement === audio) {
@@ -296,81 +394,94 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
               if (activeAudioElement === audio) {
                 setIsSpeaking(false);
                 activeAudioElement = null;
-                fallbackWebSpeech(cleanText, thisSessionId);
               }
             };
-            try {
-              const playPromise = audio.play();
-              if (playPromise !== undefined) {
-                playPromise.catch((err) => {
-                  console.warn("Audio play promise catch:", err);
-                  fallbackWebSpeech(cleanText, thisSessionId);
-                });
-              }
-              return;
-            } catch {
-              fallbackWebSpeech(cleanText, thisSessionId);
-              return;
-            }
+            audio.play().catch(() => {});
           }
         }
-      } catch (e) {
-        console.warn("Natural TTS endpoint fallback:", e);
+      } catch (err) {
+        console.warn("Natural audio stream catch:", err);
+      }
+    };
+
+    // If SpeechSynthesis is available in browser
+    if (window.speechSynthesis) {
+      const voices: SpeechSynthesisVoice[] = voicesRef.current.length > 0 
+        ? voicesRef.current 
+        : (window.speechSynthesis.getVoices?.() || []);
+
+      const matchingVoices = voices.filter((v) => 
+        v.lang.toLowerCase().replace("_", "-").startsWith(langPrefix)
+      );
+
+      // If non-English language requested and no local browser voice exists, use natural audio stream
+      if (langPrefix !== "en" && matchingVoices.length === 0) {
+        playNaturalAudioStream();
+        return;
       }
 
-      // Offline / Network failure fallback: on-device Web Speech API
-      if (thisSessionId === speechSessionCount) {
-        fallbackWebSpeech(cleanText, thisSessionId);
-      }
-    })();
-
-    function fallbackWebSpeech(phrase: string, sessionId: number) {
-      if (!window.speechSynthesis || sessionId !== speechSessionCount) return;
       try {
         if (window.speechSynthesis.paused) {
           window.speechSynthesis.resume();
         }
-      } catch {}
 
-      try {
-        const utterance = new SpeechSynthesisUtterance(phrase);
-        utterance.volume = 1.0; // Full loudness
-        utterance.rate = Math.max(0.5, Math.min(2.0, speechRate));
-        utterance.pitch = Math.max(0.5, Math.min(2.0, speechPitch));
+        const utterance = new SpeechSynthesisUtterance(cleanText);
+        utterance.volume = 1.0; // 100% full loudness
+        utterance.rate = Math.max(0.7, Math.min(1.8, speechRate));
 
-        let targetLang = "en-US";
-        if (/[\u0600-\u06FF]/.test(phrase) || /\b(yaar|baat|suno|kya|hai|karo|shukriya|nahin|nahi|apka|mera|kaise|theek|madad)\b/i.test(phrase)) {
-          targetLang = "ur-PK";
-        } else if (/[\u0900-\u097F]/.test(phrase)) {
-          targetLang = "hi-IN";
-        } else if (/[\u3040-\u30ff]/.test(phrase)) {
-          targetLang = "ja-JP";
-        } else if (/[\u4e00-\u9fff]/.test(phrase)) {
-          targetLang = "zh-CN";
-        } else if (/[\u00C0-\u017F]/.test(phrase)) {
-          targetLang = "es-ES";
-        }
-        utterance.lang = targetLang;
+        // Format IETF language tag
+        const ietfTag = targetLang === "ur" ? "ur-PK" : targetLang === "hi" ? "hi-IN" : targetLang === "ja" ? "ja-JP" : targetLang === "zh-CN" ? "zh-CN" : targetLang === "es" ? "es-ES" : targetLang === "fr" ? "fr-FR" : targetLang === "de" ? "de-DE" : "en-US";
+        utterance.lang = ietfTag;
 
-        const voices: SpeechSynthesisVoice[] = voicesRef.current.length > 0 ? voicesRef.current : (window.speechSynthesis.getVoices?.() || []);
-        if (voices.length > 0) {
-          const langVoice = voices.find((v) => v.lang.toLowerCase().startsWith(targetLang.split("-")[0].toLowerCase()));
-          if (langVoice) {
-            utterance.voice = langVoice;
+        // Apply Voice Model Profile (Male / Female / System Default)
+        if (matchingVoices.length > 0) {
+          if (ttsVoice === "neural-m") {
+            // Prefer male voice
+            const maleVoice = matchingVoices.find((v) => 
+              /(david|george|james|mark|richard|thomas|daniel|alex|guy|male|diego|jorge|pablo|en-us-guy|stefan)/i.test(v.name)
+            );
+            utterance.voice = maleVoice || matchingVoices[0];
+            utterance.pitch = Math.max(0.5, Math.min(1.1, speechPitch * 0.85)); // Deep resonant male tone
+          } else if (ttsVoice === "neural-f") {
+            // Prefer female voice
+            const femaleVoice = matchingVoices.find((v) => 
+              /(zira|hazel|samantha|victoria|jenny|female|heera|carmen|monica|en-us-jenny|hedda)/i.test(v.name)
+            );
+            utterance.voice = femaleVoice || matchingVoices[0];
+            utterance.pitch = Math.max(0.8, Math.min(1.8, speechPitch * 1.15)); // Bright clear female tone
+          } else {
+            utterance.voice = matchingVoices[0];
+            utterance.pitch = Math.max(0.6, Math.min(1.5, speechPitch));
+          }
+        } else {
+          // Adjust pitch for male/female simulation if default voice
+          if (ttsVoice === "neural-m") {
+            utterance.pitch = Math.max(0.5, Math.min(1.1, speechPitch * 0.85));
+          } else if (ttsVoice === "neural-f") {
+            utterance.pitch = Math.max(0.8, Math.min(1.8, speechPitch * 1.15));
           }
         }
 
         utterance.onstart = () => {
-          if (sessionId === speechSessionCount) setIsSpeaking(true);
+          if (thisSessionId === speechSessionCount) {
+            setIsSpeaking(true);
+          }
         };
+
         utterance.onend = () => {
-          setIsSpeaking(false);
-          activeUtterance = null;
+          if (thisSessionId === speechSessionCount) {
+            setIsSpeaking(false);
+            activeUtterance = null;
+          }
         };
+
         utterance.onerror = (err) => {
-          console.warn("speechSynthesis error:", err);
-          setIsSpeaking(false);
-          activeUtterance = null;
+          console.warn("speechSynthesis error fallback:", err);
+          if (thisSessionId === speechSessionCount) {
+            setIsSpeaking(false);
+            activeUtterance = null;
+            playNaturalAudioStream();
+          }
         };
 
         activeUtterance = utterance;
@@ -379,12 +490,17 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
         if (window.speechSynthesis.paused) {
           window.speechSynthesis.resume();
         }
+
         window.speechSynthesis.speak(utterance);
+        return;
       } catch (err) {
-        console.warn("speechSynthesis speak error", err);
+        console.warn("Direct speech synthesis error:", err);
       }
     }
-  }, [voiceGuidanceActive, speechRate, speechPitch]);
+
+    // Fallback: Natural audio stream
+    playNaturalAudioStream();
+  }, [voiceGuidanceActive, speechRate, speechPitch, ttsVoice]);
 
   const stopSpeaking = () => {
     if (typeof window !== "undefined") {

@@ -49,6 +49,10 @@ export default function TranslationPage() {
     { code: "ur", name: "Urdu (اردو)" }
   ];
 
+  useEffect(() => {
+    speak("Translator active. Translate text, camera signs, or live speech.");
+  }, []);
+
   // Camera management for OCR Mode
   useEffect(() => {
     if (mode === "ocr") {
@@ -94,7 +98,7 @@ export default function TranslationPage() {
       const res = await CompanioAPI.translate(inputText, targetLang);
       setTranslatedText(res.translatedText);
       setTranslationSource(res.source);
-      speak(`Translation complete: ${res.translatedText}`, true);
+      speak(res.translatedText, true, targetLang);
       addToast(
         res.isOffline ? "Translated via Offline Dictionary" : "Translated!",
         "success"
@@ -147,7 +151,7 @@ export default function TranslationPage() {
       // Then translate the OCR result
       const res = await CompanioAPI.translate(scannedText, targetLang);
       setOcrTranslation(res.translatedText);
-      speak(`Scanned and translated: ${res.translatedText}`, true);
+      speak(res.translatedText, true, targetLang);
       addToast(res.isOffline ? "Scanned & translated (offline)" : "Successfully scanned & translated", "success");
     } catch (err) {
       console.error(err);
@@ -220,7 +224,7 @@ export default function TranslationPage() {
           try {
             const res = await CompanioAPI.translate(finalTrans.trim(), targetLang);
             setVoiceTranslation(res.translatedText);
-            speak(res.translatedText, true);
+            speak(res.translatedText, true, targetLang);
             addToast("Translation complete", "success");
             logActivity("translation", `Voice translated: ${finalTrans.slice(0, 30)}...`, "mic", `to ${targetLang}`);
           } catch (e) {
@@ -347,7 +351,7 @@ export default function TranslationPage() {
                       <span className="material-symbols-outlined text-xl">content_copy</span>
                     </button>
                     <button
-                      onClick={() => speak(translatedText, true)}
+                      onClick={() => speak(translatedText, true, targetLang)}
                       className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center hover:bg-primary/20 cursor-pointer"
                       aria-label="Read translated text out loud"
                     >
@@ -414,7 +418,7 @@ export default function TranslationPage() {
                           <span className="material-symbols-outlined text-base">content_copy</span>
                         </button>
                         <button
-                          onClick={() => speak(ocrTranslation, true)}
+                          onClick={() => speak(ocrTranslation, true, targetLang)}
                           className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center hover:bg-primary/20 cursor-pointer"
                           aria-label="Read translation"
                         >
@@ -480,7 +484,7 @@ export default function TranslationPage() {
                           <span className="material-symbols-outlined text-base">content_copy</span>
                         </button>
                         <button
-                          onClick={() => speak(voiceTranslation, true)}
+                          onClick={() => speak(voiceTranslation, true, targetLang)}
                           className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center hover:bg-primary/20 cursor-pointer"
                           aria-label="Replay voice translation"
                         >

@@ -22,6 +22,7 @@ export default function EmergencyPage() {
 
   const [location, setLocation] = useState<{ lat: number; lng: number; address: string } | null>(null);
   const [locating, setLocating] = useState(true);
+  const [isEstimatedLocation, setIsEstimatedLocation] = useState(false);
   const [sirenActive, setSirenActive] = useState(false);
   const [strobeActive, setStrobeActive] = useState(false);
 
@@ -50,9 +51,9 @@ export default function EmergencyPage() {
     wearableBridge.triggerHaptic("sos");
 
     const fallbackLocation = {
-      lat: 37.7749,
-      lng: -122.4194,
-      address: "Main Street Medical Center, 2nd Floor, Room 204",
+      lat: 0,
+      lng: 0,
+      address: "Location unavailable — GPS permission denied or not supported",
     };
 
     if (typeof navigator !== "undefined" && "geolocation" in navigator) {
@@ -62,21 +63,26 @@ export default function EmergencyPage() {
           const lng = pos.coords.longitude;
           const address = `Approx. Coordinates: ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
           setLocation({ lat, lng, address });
+          setIsEstimatedLocation(false);
           setLocating(false);
           speak(`Location acquired. ${address}`, true);
         },
         (err) => {
-          console.warn(err);
+          console.warn("Geolocation acquisition failed:", err);
           setLocation(fallbackLocation);
+          setIsEstimatedLocation(true);
           setLocating(false);
+          speak("Warning. Your exact location could not be determined. Please state your location verbally if you can.", true);
         },
         { enableHighAccuracy: true, timeout: 8000 }
       );
     } else {
-      // Use a microtask to avoid synchronous setState inside effect
+      // Microtask to avoid synchronous setState inside effect
       Promise.resolve().then(() => {
         setLocation(fallbackLocation);
+        setIsEstimatedLocation(true);
         setLocating(false);
+        speak("Warning. Your exact location could not be determined. Please state your location verbally if you can.", true);
       });
     }
 
@@ -130,9 +136,10 @@ export default function EmergencyPage() {
   };
 
   const getEmergencyMessage = () => {
-    const locStr = location
-      ? `https://maps.google.com/?q=${location.lat},${location.lng} (${location.address})`
-      : "Unknown location";
+    if (isEstimatedLocation || !location) {
+      return `EMERGENCY ALERT: [APPROXIMATE - GPS UNAVAILABLE] I need immediate assistance! Exact location could not be determined (GPS permission denied or unavailable). Sent via Companio Accessibility Suite.`;
+    }
+    const locStr = `https://maps.google.com/?q=${location.lat},${location.lng} (${location.address})`;
     return `EMERGENCY ALERT: I need immediate assistance! My current location is: ${locStr}. Sent via Companio Accessibility Suite.`;
   };
 
@@ -183,16 +190,42 @@ export default function EmergencyPage() {
             <span className="material-symbols-outlined">location_on</span>
             <h2 className="text-base uppercase tracking-wider">Your Live Coordinates</h2>
           </div>
-          <span className="text-xs bg-primary/10 text-primary font-bold px-2.5 py-0.5 rounded-full">
-            {locating ? "Acquiring GPS..." : "GPS Locked"}
+          <span
+            className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${
+              locating
+                ? "bg-primary/10 text-primary"
+                : isEstimatedLocation
+                ? "bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20"
+                : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+            }`}
+          >
+            {locating
+              ? "Acquiring GPS..."
+              : isEstimatedLocation
+              ? "Location Unavailable"
+              : "GPS Locked"}
           </span>
         </div>
 
-        <div className="py-2">
+        <div className="py-2 flex flex-col gap-2">
           <p className="text-xl font-extrabold text-on-surface">
             {location ? location.address : "Retrieving satellite signal..."}
           </p>
-          {location && (
+
+          {/* Warning Banner when GPS is unavailable */}
+          {isEstimatedLocation && (
+            <div
+              className="bg-red-500/10 border-2 border-red-500/30 rounded-xl p-3 flex items-center gap-2 text-red-600 dark:text-red-400 text-sm font-semibold"
+              role="alert"
+            >
+              <span className="material-symbols-outlined text-lg shrink-0">warning</span>
+              <span>
+                Your exact location could not be determined. Emergency responders may not receive an accurate location — please state your location verbally if possible.
+              </span>
+            </div>
+          )}
+
+          {location && !isEstimatedLocation && (
             <p className="text-sm text-on-surface-variant font-mono mt-1">
               Latitude: {location.lat.toFixed(5)}, Longitude: {location.lng.toFixed(5)}
             </p>

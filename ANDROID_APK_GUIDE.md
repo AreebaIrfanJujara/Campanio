@@ -56,3 +56,13 @@ Companio is already a fully configured Progressive Web App (PWA).
 - **Sync project assets**: `npm run cap:sync`
 - **Build Android APK**: `npm run apk:build`
 - **Open in Android Studio**: `npm run cap:open`
+
+---
+
+## 🛠️ Troubleshooting
+
+### Gradle Out of Memory / Native Memory Crash
+If `npm run apk:build` fails with an "insufficient memory" or daemon crash error:
+1. **Close resource-intensive applications**: Close other IDEs, emulators, or browser instances before running the Gradle build.
+2. **JVM Heap Settings**: Check `android/gradle.properties`. The default is configured to `org.gradle.jvmargs=-Xmx1024m -XX:MaxMetaspaceSize=256m`. If your machine has less than 8GB of free RAM, lower `-Xmx1024m` to `-Xmx768m` or `-Xmx512m`.
+3. **Parallel builds**: Ensure `org.gradle.parallel` remains commented out (parallel builds consume significantly more RAM).
