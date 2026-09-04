@@ -36,7 +36,7 @@ export default function PermissionMicPage() {
         }, 1200);
       } catch {
         setStatus("denied");
-        speak("Permission was denied. Proceeding to accessibility profile setup with mock mode.", true);
+        speak("Permission was denied. You can still use text and manual features. Proceeding to profile setup.", true);
         setTimeout(() => {
           router.push("/profile-setup");
         }, 1500);
@@ -79,7 +79,7 @@ export default function PermissionMicPage() {
       {status === "denied" && (
         <div role="status" aria-live="polite" className="flex items-center gap-2 bg-red-500/10 text-red-700 dark:text-red-400 font-bold py-2 px-4 rounded-full border border-red-500/30 animate-slide-up">
           <span className="material-symbols-outlined">cancel</span>
-          Access Denied (Mock Simulation Active)
+          Access Denied (Manual Mode Active)
         </div>
       )}
 

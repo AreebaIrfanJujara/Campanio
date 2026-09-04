@@ -20,6 +20,7 @@ export default function CurrencyScannerPage() {
   const { addToast } = useToast();
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -27,7 +28,9 @@ export default function CurrencyScannerPage() {
   const [lastScanned, setLastScanned] = useState<ScannedItem | null>(null);
   const [history, setHistory] = useState<ScannedItem[]>([]);
   const [runningTotal, setRunningTotal] = useState<number>(0);
-  const [cameraActive, setCameraActive] = useState<boolean>(false);
+  const [cameraActive, setCameraActive] = useState<boolean>(true);
+  const [isCameraLoading, setIsCameraLoading] = useState<boolean>(true);
+  const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
 
   useEffect(() => {
     speak("Currency and product scanner active. Point your camera at a banknote or barcode.", true);
@@ -38,46 +41,79 @@ export default function CurrencyScannerPage() {
     };
   }, []);
 
-  const startCamera = async () => {
+  const startCamera = async (targetFacing?: "environment" | "user") => {
+    const facing = targetFacing || facingMode;
+    setIsCameraLoading(true);
     try {
-      if (videoRef.current && videoRef.current.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream;
-        stream.getTracks().forEach((track) => track.stop());
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
       }
       let stream: MediaStream;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 } },
+          video: { facingMode: { exact: facing }, width: { ideal: 1280 } },
           audio: false,
         });
       } catch {
-        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: facing }, width: { ideal: 1280 } },
+            audio: false,
+          });
+        } catch {
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }
       }
+      streamRef.current = stream;
+      setCameraActive(true);
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.setAttribute("playsinline", "true");
         videoRef.current.setAttribute("webkit-playsinline", "true");
         videoRef.current.muted = true;
         videoRef.current.play().catch(() => {});
-        setCameraActive(true);
       }
+      speak(`Camera enabled. Using ${facing === "environment" ? "rear" : "front"} lens.`, true);
     } catch (e) {
       console.warn("Camera stream unavailable", e);
       setCameraActive(false);
+      setIsCameraLoading(false);
     }
+  };
+
+  const toggleCamera = () => {
+    const nextFacing = facingMode === "environment" ? "user" : "environment";
+    setFacingMode(nextFacing);
+    startCamera(nextFacing);
   };
 
   const stopCamera = () => {
-    if (videoRef.current && videoRef.current.srcObject) {
-      const stream = videoRef.current.srcObject as MediaStream;
-      stream.getTracks().forEach((track) => track.stop());
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
     }
   };
 
+  useEffect(() => {
+    if (cameraActive && videoRef.current && streamRef.current) {
+      if (videoRef.current.srcObject !== streamRef.current) {
+        videoRef.current.srcObject = streamRef.current;
+        videoRef.current.setAttribute("playsinline", "true");
+        videoRef.current.setAttribute("webkit-playsinline", "true");
+        videoRef.current.muted = true;
+        videoRef.current.play().catch(() => {});
+      }
+    }
+  }, [cameraActive]);
+
   const captureAndScan = async () => {
-    setIsScanning(true);
-    wearableBridge.triggerHaptic("tap");
-    speak("Analyzing currency denomination...", true);
+    if (!cameraActive || !videoRef.current) {
+      speak("Your camera is currently off or blocked. Please allow camera permission to scan currency.", true);
+      addToast("Camera is off. Please allow camera permission.", "warning");
+      startCamera();
+      return;
+    }
 
     let imageBase64 = "";
     if (videoRef.current && canvasRef.current && cameraActive) {
@@ -96,11 +132,21 @@ export default function CurrencyScannerPage() {
       }
     }
 
+    if (!imageBase64) {
+      speak("Could not capture frame from camera. Please hold steady and try again.", true);
+      addToast("Could not capture frame", "warning");
+      return;
+    }
+
+    setIsScanning(true);
+    wearableBridge.triggerHaptic("tap");
+    speak("Analyzing currency denomination...", true);
+
     try {
       const res = await fetch("/api/vision/currency", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: imageBase64 || "simulated" }),
+        body: JSON.stringify({ imageBase64 }),
       });
 
       const data = await res.json();
@@ -208,21 +254,51 @@ export default function CurrencyScannerPage() {
       {cameraActive ? (
         <div className="w-full aspect-[4/3] max-h-[360px] bg-black rounded-3xl overflow-hidden relative border-4 border-outline-variant shadow-inner flex items-center justify-center">
           <video
-            ref={videoRef}
+            ref={(el) => {
+              (videoRef as any).current = el;
+              if (el && streamRef.current && el.srcObject !== streamRef.current) {
+                el.srcObject = streamRef.current;
+                el.setAttribute("playsinline", "true");
+                el.setAttribute("webkit-playsinline", "true");
+                el.muted = true;
+                el.play().catch(() => {});
+              }
+            }}
             autoPlay
             playsInline
             muted
             onLoadedMetadata={(e) => {
+              setIsCameraLoading(false);
               const el = e.currentTarget;
               el.play().catch(() => {});
             }}
             onCanPlay={(e) => {
+              setIsCameraLoading(false);
               const el = e.currentTarget;
               el.play().catch(() => {});
             }}
+            onPlaying={() => setIsCameraLoading(false)}
             className="w-full h-full object-cover"
           />
           <canvas ref={canvasRef} className="hidden" />
+
+          {isCameraLoading && (
+            <div className="absolute inset-0 bg-surface-container/90 backdrop-blur-sm flex flex-col items-center justify-center gap-3 z-10">
+              <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+              <p className="text-sm font-bold text-on-surface">Starting camera...</p>
+            </div>
+          )}
+
+          {/* Switch Camera Button */}
+          <button
+            type="button"
+            onClick={toggleCamera}
+            aria-label={`Switch camera. Currently using ${facingMode === "environment" ? "back" : "front"} camera.`}
+            title="Switch Camera (Front / Back)"
+            className="absolute top-4 right-4 z-20 w-11 h-11 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md text-white border border-white/25 shadow-lg flex items-center justify-center active:scale-90 transition-all cursor-pointer"
+          >
+            <span className="material-symbols-outlined text-2xl">flip_camera_ios</span>
+          </button>
 
           {/* Framing Guide for Banknotes */}
           <div className="absolute inset-8 border-2 border-dashed border-[#ffd400] rounded-2xl pointer-events-none flex items-center justify-center">

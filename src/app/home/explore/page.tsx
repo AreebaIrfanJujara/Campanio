@@ -7,6 +7,8 @@ import { useActivity } from "@/context/ActivityContext";
 import { CompanioAPI } from "@/lib/api";
 import { playTone } from "@/lib/audioManager";
 
+import { CameraPermissionView } from "@/components/CameraPermissionView";
+
 interface ScanLog {
   time: string;
   text: string;
@@ -17,7 +19,9 @@ export default function ExploreModePage() {
   const { addToast } = useToast();
   const { logActivity } = useActivity();
 
-  const [hasCamera, setHasCamera] = useState<boolean>(false);
+  const [hasCamera, setHasCamera] = useState<boolean>(true);
+  const [isCameraLoading, setIsCameraLoading] = useState<boolean>(true);
+  const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [scanLogs, setScanLogs] = useState<ScanLog[]>([]);
   const [cameraError, setCameraError] = useState<string>("");
@@ -26,45 +30,80 @@ export default function ExploreModePage() {
   const streamRef = useRef<MediaStream | null>(null);
   const intervalRef = useRef<any>(null);
 
-  // Request camera stream
-  useEffect(() => {
-    speak("Explore objects mode active. Point your camera to detect items around you.");
-    async function startCamera() {
+  const startCamera = async (targetFacing?: "environment" | "user") => {
+    const facing = targetFacing || facingMode;
+    setIsCameraLoading(true);
+    try {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
+      let stream: MediaStream;
       try {
-        let stream: MediaStream;
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { exact: facing }, width: { ideal: 1280 } },
+          audio: false,
+        });
+      } catch {
         try {
           stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 } },
+            video: { facingMode: { ideal: facing }, width: { ideal: 1280 } },
             audio: false,
           });
         } catch {
           stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
         }
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.setAttribute("playsinline", "true");
-          videoRef.current.setAttribute("webkit-playsinline", "true");
-          videoRef.current.muted = true;
-          videoRef.current.play().catch(() => {});
-        }
-        setHasCamera(true);
-      } catch (err) {
-        console.error("Camera access error:", err);
-        setCameraError("Camera stream unavailable. Standby mode active.");
-        setHasCamera(false);
       }
+      streamRef.current = stream;
+      setHasCamera(true);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.setAttribute("playsinline", "true");
+        videoRef.current.setAttribute("webkit-playsinline", "true");
+        videoRef.current.muted = true;
+        videoRef.current.play().catch(() => {});
+      }
+      setCameraError("");
+      speak(`Camera enabled. Using ${facing === "environment" ? "rear" : "front"} lens.`, true);
+    } catch (err) {
+      console.error("Camera access error:", err);
+      setCameraError("Camera permission denied or unavailable.");
+      setHasCamera(false);
+      setIsCameraLoading(false);
     }
+  };
 
+  const toggleCamera = () => {
+    const nextFacing = facingMode === "environment" ? "user" : "environment";
+    setFacingMode(nextFacing);
+    startCamera(nextFacing);
+  };
+
+  // Request camera stream
+  useEffect(() => {
+    speak("Explore objects mode active. Point your camera to detect items around you.");
     startCamera();
 
     return () => {
       stopExploring();
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (hasCamera && videoRef.current && streamRef.current) {
+      if (videoRef.current.srcObject !== streamRef.current) {
+        videoRef.current.srcObject = streamRef.current;
+        videoRef.current.setAttribute("playsinline", "true");
+        videoRef.current.setAttribute("webkit-playsinline", "true");
+        videoRef.current.muted = true;
+        videoRef.current.play().catch(() => {});
+      }
+    }
+  }, [hasCamera]);
 
   const captureFrameBase64 = (): string | null => {
     if (!videoRef.current || !hasCamera) return null;
@@ -90,6 +129,13 @@ export default function ExploreModePage() {
   };
 
   const startExploring = () => {
+    if (!hasCamera || !videoRef.current) {
+      speak("Your camera is currently off or blocked. Please allow camera permission to scan your room live.", true);
+      addToast("Camera is off. Please allow camera permission to scan.", "warning");
+      startCamera();
+      return;
+    }
+
     setIsScanning(true);
     setScanLogs([]);
     speak("Starting explore scan. Please slowly sweep your camera around the room.", true);
@@ -100,41 +146,42 @@ export default function ExploreModePage() {
 
     const runStep = async () => {
       const base64 = captureFrameBase64();
-      let detectionText = "";
-
-      if (base64) {
-        try {
-          const res = await CompanioAPI.describe(base64);
-          if (res.objects && res.objects.length > 0) {
-            detectionText = `Detected ${res.objects.map((o) => o.name).join(", ")} ahead.`;
-          } else if (res.description) {
-            detectionText = res.description;
-          }
-        } catch {
-          detectionText = "Scanning angle... pathway appears navigable.";
-        }
-      } else {
-        const directionalGuides = [
-          "Left view scanned: Pathway is clear of immediate obstacles.",
-          "Center view scanned: Forward walking path aligned.",
-          "Right view scanned: Side clearance verified.",
-          "Upper area scanned: No overhead obstructions detected."
-        ];
-        detectionText = directionalGuides[step % directionalGuides.length];
+      if (!base64) {
+        stopExploring();
+        speak("Camera is not active. Please enable your camera to scan live.", true);
+        addToast("Camera not active. Please allow permission.", "warning");
+        return;
       }
 
-      playBeep();
-      speak(detectionText, true);
+      try {
+        const res = await CompanioAPI.describe(base64);
+        let detectionText = "";
+        if (res.objects && res.objects.length > 0) {
+          detectionText = `Detected ${res.objects.map((o) => o.name).join(", ")} ahead.`;
+        } else if (res.description) {
+          detectionText = res.description;
+        } else {
+          detectionText = "Area scanned: No immediate obstacles detected in view.";
+        }
 
-      const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      setScanLogs((prev) => [...prev, { time: timestamp, text: detectionText }]);
+        playBeep();
+        speak(detectionText, true);
 
-      step++;
-      if (step >= maxSteps) {
+        const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        setScanLogs((prev) => [...prev, { time: timestamp, text: detectionText }]);
+
+        step++;
+        if (step >= maxSteps) {
+          stopExploring();
+          speak("Room exploration complete. Obstacles and paths mapped.", true);
+          addToast("Explore scan completed!", "success");
+          logActivity("explore", `Explore: ${step} angles mapped`, "explore");
+        }
+      } catch (err) {
+        console.error("Explore step error:", err);
         stopExploring();
-        speak("Room exploration complete. Obstacles and paths mapped.", true);
-        addToast("Explore scan completed!", "success");
-        logActivity("explore", `Explore: ${step} angles mapped`, "explore");
+        speak("Could not analyze camera view. Please hold steady and try again.", true);
+        addToast("Camera analysis error", "error");
       }
     };
 
@@ -157,6 +204,35 @@ export default function ExploreModePage() {
     speak("Explorer map cleared.", true);
   };
 
+  const handleImageAnalyze = async (base64: string) => {
+    setIsScanning(true);
+    setScanLogs([]);
+    speak("Analyzing image of room for objects and pathways...", true);
+    addToast("Analyzing uploaded room photo...", "info");
+    try {
+      const res = await CompanioAPI.describe(base64);
+      let detectionText = "";
+      if (res.objects && res.objects.length > 0) {
+        detectionText = `Detected ${res.objects.map((o) => o.name).join(", ")} in room view.`;
+      } else if (res.description) {
+        detectionText = res.description;
+      } else {
+        detectionText = "Image analyzed: No immediate obstacles detected.";
+      }
+      playBeep();
+      speak(detectionText, true);
+      const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setScanLogs([{ time: timestamp, text: detectionText }]);
+      addToast("Room photo analysis complete", "success");
+    } catch (err) {
+      console.error(err);
+      speak("Could not analyze uploaded photo.", true);
+      addToast("Failed to analyze photo", "error");
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
   return (
     <div className="flex-grow flex flex-col px-margin-edge py-stack-lg gap-6 w-full">
       {/* Title */}
@@ -167,46 +243,78 @@ export default function ExploreModePage() {
         </p>
       </div>
 
-      {/* Viewfinder frame */}
-      <div className="w-full aspect-video bg-black rounded-2xl overflow-hidden relative border-2 border-outline-variant shadow flex items-center justify-center">
-        {hasCamera ? (
+      {/* Viewfinder frame or Camera Permission View */}
+      {hasCamera ? (
+        <div className="w-full aspect-video bg-black rounded-2xl overflow-hidden relative border-2 border-outline-variant shadow flex items-center justify-center">
           <video
-            ref={videoRef}
+            ref={(el) => {
+              (videoRef as any).current = el;
+              if (el && streamRef.current && el.srcObject !== streamRef.current) {
+                el.srcObject = streamRef.current;
+                el.setAttribute("playsinline", "true");
+                el.setAttribute("webkit-playsinline", "true");
+                el.muted = true;
+                el.play().catch(() => {});
+              }
+            }}
             autoPlay
             playsInline
             muted
             onLoadedMetadata={(e) => {
+              setIsCameraLoading(false);
               const el = e.currentTarget;
               el.play().catch(() => {});
             }}
             onCanPlay={(e) => {
+              setIsCameraLoading(false);
               const el = e.currentTarget;
               el.play().catch(() => {});
             }}
+            onPlaying={() => setIsCameraLoading(false)}
             className="w-full h-full object-cover"
           />
-        ) : (
-          <div className="text-center p-6 text-on-surface-variant">
-            <span className="material-symbols-outlined text-6xl mb-2 text-outline">videocam_off</span>
-            <p className="text-lg font-semibold">{cameraError || "Loading camera view..."}</p>
-          </div>
-        )}
 
-        {/* Scan lines overlays */}
-        {isScanning && (
-          <div className="absolute inset-0 bg-primary/5 pointer-events-none">
-            <div className="w-full h-0.5 bg-primary shadow-[0_0_8px_var(--primary)] animate-[bounce_3s_infinite] top-0 absolute"></div>
-          </div>
-        )}
-
-        <div className="absolute inset-6 border-2 border-dashed border-white/20 rounded-xl pointer-events-none flex items-center justify-center">
-          {!isScanning && scanLogs.length === 0 && (
-            <span className="text-white/60 bg-black/60 px-4 py-2 rounded-full font-label-md">
-              Tap start to explore
-            </span>
+          {isCameraLoading && (
+            <div className="absolute inset-0 bg-surface-container/90 backdrop-blur-sm flex flex-col items-center justify-center gap-3 z-10">
+              <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+              <p className="text-sm font-bold text-on-surface">Starting camera...</p>
+            </div>
           )}
+
+          {/* Switch Camera Button */}
+          <button
+            type="button"
+            onClick={toggleCamera}
+            aria-label={`Switch camera. Currently using ${facingMode === "environment" ? "back" : "front"} camera.`}
+            title="Switch Camera (Front / Back)"
+            className="absolute top-4 right-4 z-20 w-11 h-11 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md text-white border border-white/25 shadow-lg flex items-center justify-center active:scale-90 transition-all cursor-pointer"
+          >
+            <span className="material-symbols-outlined text-2xl">flip_camera_ios</span>
+          </button>
+
+          {/* Scan lines overlays */}
+          {isScanning && (
+            <div className="absolute inset-0 bg-primary/5 pointer-events-none">
+              <div className="w-full h-0.5 bg-primary shadow-[0_0_8px_var(--primary)] animate-[bounce_3s_infinite] top-0 absolute"></div>
+            </div>
+          )}
+
+          <div className="absolute inset-6 border-2 border-dashed border-white/20 rounded-xl pointer-events-none flex items-center justify-center">
+            {!isScanning && scanLogs.length === 0 && (
+              <span className="text-white/60 bg-black/60 px-4 py-2 rounded-full font-label-md">
+                Tap start to explore
+              </span>
+            )}
+          </div>
         </div>
-      </div>
+      ) : (
+        <CameraPermissionView
+          onRetry={startCamera}
+          onImageSelected={handleImageAnalyze}
+          title="Camera Permission Required"
+          subtitle="Companio needs camera access to see your surroundings, explore the room, and detect obstacles live."
+        />
+      )}
 
       {/* Action buttons */}
       <div className="flex gap-4">

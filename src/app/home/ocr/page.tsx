@@ -13,7 +13,9 @@ export default function OCRPage() {
   const { addToast } = useToast();
   const { logActivity } = useActivity();
   
-  const [hasCamera, setHasCamera] = useState<boolean>(false);
+  const [hasCamera, setHasCamera] = useState<boolean>(true);
+  const [isCameraLoading, setIsCameraLoading] = useState<boolean>(true);
+  const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [scannedText, setScannedText] = useState<string>("");
   const [cameraError, setCameraError] = useState<string>("");
@@ -39,22 +41,33 @@ export default function OCRPage() {
     { code: "ur", name: "Urdu (اردو)" }
   ];
 
-  const startCamera = async () => {
+  const startCamera = async (targetFacing?: "environment" | "user") => {
+    const facing = targetFacing || facingMode;
     setCameraError("");
+    setIsCameraLoading(true);
     try {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
       }
       let stream: MediaStream;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 } },
+          video: { facingMode: { exact: facing }, width: { ideal: 1280 } },
           audio: false,
         });
       } catch {
-        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: facing }, width: { ideal: 1280 } },
+            audio: false,
+          });
+        } catch {
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }
       }
       streamRef.current = stream;
+      setHasCamera(true);
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.setAttribute("playsinline", "true");
@@ -62,13 +75,19 @@ export default function OCRPage() {
         videoRef.current.muted = true;
         videoRef.current.play().catch(() => {});
       }
-      setHasCamera(true);
-      speak("Camera enabled. Point your lens at text to scan.", true);
+      speak(`Camera enabled. Using ${facing === "environment" ? "rear" : "front"} lens.`, true);
     } catch (err) {
       console.warn("Camera access notice:", err);
       setCameraError("Camera permission denied or unavailable.");
       setHasCamera(false);
+      setIsCameraLoading(false);
     }
+  };
+
+  const toggleCamera = () => {
+    const nextFacing = facingMode === "environment" ? "user" : "environment";
+    setFacingMode(nextFacing);
+    startCamera(nextFacing);
   };
 
   useEffect(() => {
@@ -77,9 +96,22 @@ export default function OCRPage() {
     return () => {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (hasCamera && videoRef.current && streamRef.current) {
+      if (videoRef.current.srcObject !== streamRef.current) {
+        videoRef.current.srcObject = streamRef.current;
+        videoRef.current.setAttribute("playsinline", "true");
+        videoRef.current.setAttribute("webkit-playsinline", "true");
+        videoRef.current.muted = true;
+        videoRef.current.play().catch(() => {});
+      }
+    }
+  }, [hasCamera]);
 
   // Capture frame from video as optimized base64
   const captureFrameBase64 = (): string | null => {
@@ -223,20 +255,50 @@ export default function OCRPage() {
       {hasCamera ? (
         <div className="w-full aspect-video bg-black rounded-3xl overflow-hidden relative border-2 border-outline-variant shadow-lg flex items-center justify-center">
           <video
-            ref={videoRef}
+            ref={(el) => {
+              (videoRef as any).current = el;
+              if (el && streamRef.current && el.srcObject !== streamRef.current) {
+                el.srcObject = streamRef.current;
+                el.setAttribute("playsinline", "true");
+                el.setAttribute("webkit-playsinline", "true");
+                el.muted = true;
+                el.play().catch(() => {});
+              }
+            }}
             autoPlay
             playsInline
             muted
             onLoadedMetadata={(e) => {
+              setIsCameraLoading(false);
               const el = e.currentTarget;
               el.play().catch(() => {});
             }}
             onCanPlay={(e) => {
+              setIsCameraLoading(false);
               const el = e.currentTarget;
               el.play().catch(() => {});
             }}
+            onPlaying={() => setIsCameraLoading(false)}
             className="w-full h-full object-cover"
           />
+
+          {isCameraLoading && (
+            <div className="absolute inset-0 bg-surface-container/90 backdrop-blur-sm flex flex-col items-center justify-center gap-3 z-10">
+              <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+              <p className="text-sm font-bold text-on-surface">Starting camera...</p>
+            </div>
+          )}
+
+          {/* Switch Camera Button */}
+          <button
+            type="button"
+            onClick={toggleCamera}
+            aria-label={`Switch camera. Currently using ${facingMode === "environment" ? "back" : "front"} camera.`}
+            title="Switch Camera (Front / Back)"
+            className="absolute top-4 right-4 z-20 w-11 h-11 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md text-white border border-white/25 shadow-lg flex items-center justify-center active:scale-90 transition-all cursor-pointer"
+          >
+            <span className="material-symbols-outlined text-2xl">flip_camera_ios</span>
+          </button>
 
           {/* OCR green scanner bar line animation */}
           {isScanning && (

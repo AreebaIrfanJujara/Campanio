@@ -26,7 +26,9 @@ export default function TranslationPage() {
   const [translationSource, setTranslationSource] = useState<string>("");
 
   // OCR Mode States
-  const [hasCamera, setHasCamera] = useState<boolean>(false);
+  const [hasCamera, setHasCamera] = useState<boolean>(true);
+  const [isCameraLoading, setIsCameraLoading] = useState<boolean>(true);
+  const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
   const [ocrText, setOcrText] = useState<string>("");
   const [ocrTranslation, setOcrTranslation] = useState<string>("");
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -63,21 +65,32 @@ export default function TranslationPage() {
     return () => stopCamera();
   }, [mode]);
 
-  const startCamera = async () => {
+  const startCamera = async (targetFacing?: "environment" | "user") => {
+    const facing = targetFacing || facingMode;
+    setIsCameraLoading(true);
     try {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
       }
       let stream: MediaStream;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 } },
+          video: { facingMode: { exact: facing }, width: { ideal: 1280 } },
           audio: false,
         });
       } catch {
-        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: facing }, width: { ideal: 1280 } },
+            audio: false,
+          });
+        } catch {
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }
       }
       streamRef.current = stream;
+      setHasCamera(true);
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.setAttribute("playsinline", "true");
@@ -85,11 +98,18 @@ export default function TranslationPage() {
         videoRef.current.muted = true;
         videoRef.current.play().catch(() => {});
       }
-      setHasCamera(true);
+      speak(`Camera enabled. Using ${facing === "environment" ? "rear" : "front"} lens.`, true);
     } catch (err) {
       console.error(err);
       setHasCamera(false);
+      setIsCameraLoading(false);
     }
+  };
+
+  const toggleCamera = () => {
+    const nextFacing = facingMode === "environment" ? "user" : "environment";
+    setFacingMode(nextFacing);
+    startCamera(nextFacing);
   };
 
   const stopCamera = () => {
@@ -97,7 +117,20 @@ export default function TranslationPage() {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
+    setHasCamera(false);
   };
+
+  useEffect(() => {
+    if (hasCamera && videoRef.current && streamRef.current) {
+      if (videoRef.current.srcObject !== streamRef.current) {
+        videoRef.current.srcObject = streamRef.current;
+        videoRef.current.setAttribute("playsinline", "true");
+        videoRef.current.setAttribute("webkit-playsinline", "true");
+        videoRef.current.muted = true;
+        videoRef.current.play().catch(() => {});
+      }
+    }
+  }, [hasCamera]);
 
   const handleTranslateText = async () => {
     if (!inputText.trim()) {
@@ -382,25 +415,55 @@ export default function TranslationPage() {
             <div className="w-full aspect-video bg-black rounded-2xl overflow-hidden relative border-2 border-outline-variant shadow flex items-center justify-center">
               {hasCamera ? (
                 <video
-                  ref={videoRef}
+                  ref={(el) => {
+                    (videoRef as any).current = el;
+                    if (el && streamRef.current && el.srcObject !== streamRef.current) {
+                      el.srcObject = streamRef.current;
+                      el.setAttribute("playsinline", "true");
+                      el.setAttribute("webkit-playsinline", "true");
+                      el.muted = true;
+                      el.play().catch(() => {});
+                    }
+                  }}
                   autoPlay
                   playsInline
                   muted
                   onLoadedMetadata={(e) => {
+                    setIsCameraLoading(false);
                     const el = e.currentTarget;
                     el.play().catch(() => {});
                   }}
                   onCanPlay={(e) => {
+                    setIsCameraLoading(false);
                     const el = e.currentTarget;
                     el.play().catch(() => {});
                   }}
+                  onPlaying={() => setIsCameraLoading(false)}
                   className="w-full h-full object-cover"
                 />
               ) : (
                 <div className="text-center p-6 text-on-surface-variant">
                   <span className="material-symbols-outlined text-6xl mb-2 text-outline">videocam_off</span>
-                  <p className="text-lg font-semibold">Loading camera view...</p>
+                  <p className="text-lg font-semibold">Camera is unavailable</p>
                 </div>
+              )}
+              {isCameraLoading && hasCamera && (
+                <div className="absolute inset-0 bg-surface-container/90 backdrop-blur-sm flex flex-col items-center justify-center gap-3 z-10">
+                  <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+                  <p className="text-sm font-bold text-on-surface">Starting camera...</p>
+                </div>
+              )}
+
+              {hasCamera && (
+                <button
+                  type="button"
+                  onClick={toggleCamera}
+                  aria-label={`Switch camera. Currently using ${facingMode === "environment" ? "back" : "front"} camera.`}
+                  title="Switch Camera (Front / Back)"
+                  className="absolute top-4 right-4 z-20 w-11 h-11 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md text-white border border-white/25 shadow-lg flex items-center justify-center active:scale-90 transition-all cursor-pointer"
+                >
+                  <span className="material-symbols-outlined text-2xl">flip_camera_ios</span>
+                </button>
               )}
               {loading && (
                 <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
