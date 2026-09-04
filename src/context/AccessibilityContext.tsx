@@ -379,21 +379,15 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
     }
 
     const langPrefix = targetLang.split("-")[0].toLowerCase();
+    const ietfTag = targetLang === "ur" ? "ur-PK" : targetLang === "hi" ? "hi-IN" : targetLang === "ja" ? "ja-JP" : targetLang === "zh-CN" ? "zh-CN" : targetLang === "es" ? "es-ES" : targetLang === "fr" ? "fr-FR" : targetLang === "de" ? "de-DE" : "en-US";
 
-    // Fallback: Browser SpeechSynthesis for offline or direct fallback
-    const fallbackToBrowserSynthesis = () => {
-      if (typeof window === "undefined" || !window.speechSynthesis) return;
+    // Fast Instant Browser SpeechSynthesis (0ms local execution)
+    const speakWithBrowserSynthesis = (): boolean => {
+      if (typeof window === "undefined" || !window.speechSynthesis) return false;
       try {
         if (window.speechSynthesis.paused) {
           window.speechSynthesis.resume();
         }
-
-        const utterance = new SpeechSynthesisUtterance(cleanText);
-        utterance.volume = 1.0;
-        utterance.rate = Math.max(0.7, Math.min(1.8, speechRate));
-
-        const ietfTag = targetLang === "ur" ? "ur-PK" : targetLang === "hi" ? "hi-IN" : targetLang === "ja" ? "ja-JP" : targetLang === "zh-CN" ? "zh-CN" : targetLang === "es" ? "es-ES" : targetLang === "fr" ? "fr-FR" : targetLang === "de" ? "de-DE" : "en-US";
-        utterance.lang = ietfTag;
 
         const voices: SpeechSynthesisVoice[] = voicesRef.current.length > 0 
           ? voicesRef.current 
@@ -402,6 +396,16 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
         const matchingVoices = voices.filter((v) => 
           v.lang.toLowerCase().replace("_", "-").startsWith(langPrefix)
         );
+
+        // If Urdu on a system without Urdu voice pack, let server TTS handle it
+        if (targetLang === "ur" && matchingVoices.length === 0) {
+          return false;
+        }
+
+        const utterance = new SpeechSynthesisUtterance(cleanText);
+        utterance.volume = 1.0;
+        utterance.rate = Math.max(0.7, Math.min(1.8, speechRate));
+        utterance.lang = ietfTag;
 
         if (matchingVoices.length > 0) {
           if (ttsVoice === "neural-m") {
@@ -439,6 +443,8 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
           if (thisSessionId === speechSessionCount) {
             setIsSpeaking(false);
             activeUtterance = null;
+            // Fallback to server audio stream if local speech threw error
+            playNaturalAudioStream();
           }
         };
 
@@ -450,8 +456,10 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
         }
 
         window.speechSynthesis.speak(utterance);
+        return true;
       } catch (err) {
         console.warn("Direct browser speech synthesis error:", err);
+        return false;
       }
     };
 
@@ -471,8 +479,6 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
           if (played) {
             return;
           }
-          fallbackToBrowserSynthesis();
-          return;
         }
 
         const controller = new AbortController();
@@ -506,14 +512,14 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
       } catch (err) {
         console.warn("Natural audio stream catch:", err);
       }
-
-      if (thisSessionId === speechSessionCount) {
-        fallbackToBrowserSynthesis();
-      }
     };
 
-    // Trigger natural speech stream with instant offline fallback
-    playNaturalAudioStream();
+    // Try instant local browser synthesis first (0ms latency)
+    const startedInstantly = speakWithBrowserSynthesis();
+    if (!startedInstantly) {
+      // Fallback to natural audio stream from server
+      playNaturalAudioStream();
+    }
   }, [voiceGuidanceActive, speechRate, speechPitch, ttsVoice]);
 
   const stopSpeaking = () => {

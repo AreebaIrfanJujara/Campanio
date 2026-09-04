@@ -164,11 +164,9 @@ export const AppLayoutShell: React.FC<{ children: React.ReactNode }> = ({ childr
 
   return (
     <div
-      className={`min-h-screen flex flex-col bg-background text-on-background transition-colors ${isNavVisible ? "pb-[88px] md:pb-6" : ""} select-none`}
+      className={`min-h-screen flex flex-col bg-background text-on-background transition-colors ${isNavVisible ? "pb-[88px] md:pb-6" : ""}`}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
-      onMouseDown={handleMouseDown}
-      onMouseUp={handleMouseUp}
     >
       <TopAppBar />
       <AnimatePresence mode="wait">
