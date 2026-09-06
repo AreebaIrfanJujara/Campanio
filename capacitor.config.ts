@@ -5,8 +5,7 @@ const config: CapacitorConfig = {
   appName: 'Companio',
   webDir: 'out',
   server: {
-    // For auto-updating live app, point url to your live hosted web app or local IP address
-    // e.g. url: "https://companio.vercel.app" or "http://192.168.1.100:3000"
+    url: 'https://campanio.vercel.app',
     cleartext: true,
     androidScheme: 'https'
   }
