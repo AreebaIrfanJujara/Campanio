@@ -55,7 +55,6 @@ dist/
 /android/app/build/
 /android/build/
 /android/.gradle/
-*.apk
 *.aab
 
 # JVM crash logs
