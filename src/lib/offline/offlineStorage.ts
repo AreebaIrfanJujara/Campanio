@@ -9,6 +9,7 @@ export const OFFLINE_STORAGE_KEYS = {
   RECENT_ACTIVITY: "companio_recent_activity",
   OFFLINE_QUEUE: "companio_offline_sync_queue",
   CACHE_VERSION: "companio_cache_version",
+  CURRENCY_TALLY: "companio_currency_tally",
 };
 
 export interface SyncQueueItem {
@@ -16,6 +17,15 @@ export interface SyncQueueItem {
   type: "activity" | "settings" | "transcription";
   payload: any;
   timestamp: number;
+}
+
+export interface StoredScannedItem {
+  id: number;
+  description: string;
+  amount: number;
+  currency: string;
+  symbol: string;
+  time: string;
 }
 
 export const OfflineStorage = {
@@ -53,6 +63,62 @@ export const OfflineStorage = {
     if (!this.isAvailable()) return;
     try {
       localStorage.removeItem(OFFLINE_STORAGE_KEYS.OFFLINE_QUEUE);
+    } catch (e) {
+      console.error(e);
+    }
+  },
+
+  /** Remove a single item from the queue once it has been successfully synced. */
+  removeFromSyncQueue(id: string): void {
+    if (!this.isAvailable()) return;
+    try {
+      const queue = this.getSyncQueue().filter((item) => item.id !== id);
+      localStorage.setItem(OFFLINE_STORAGE_KEYS.OFFLINE_QUEUE, JSON.stringify(queue));
+    } catch (e) {
+      console.error("Failed to remove item from offline sync queue", e);
+    }
+  },
+
+  getSyncQueueCount(): number {
+    return this.getSyncQueue().length;
+  },
+
+  // ─────────────────────────────────────────────────────────────
+  // Currency scanner tally persistence — survives refreshes so an
+  // offline reload (which happens more often on flaky connections)
+  // doesn't silently wipe a person's running total.
+  // ─────────────────────────────────────────────────────────────
+  getCurrencyTally(): { history: StoredScannedItem[]; runningTotal: number } {
+    if (!this.isAvailable()) return { history: [], runningTotal: 0 };
+    try {
+      const raw = localStorage.getItem(OFFLINE_STORAGE_KEYS.CURRENCY_TALLY);
+      if (!raw) return { history: [], runningTotal: 0 };
+      const parsed = JSON.parse(raw);
+      return {
+        history: Array.isArray(parsed.history) ? parsed.history : [],
+        runningTotal: typeof parsed.runningTotal === "number" ? parsed.runningTotal : 0,
+      };
+    } catch {
+      return { history: [], runningTotal: 0 };
+    }
+  },
+
+  setCurrencyTally(history: StoredScannedItem[], runningTotal: number): void {
+    if (!this.isAvailable()) return;
+    try {
+      localStorage.setItem(
+        OFFLINE_STORAGE_KEYS.CURRENCY_TALLY,
+        JSON.stringify({ history, runningTotal })
+      );
+    } catch (e) {
+      console.error("Failed to persist currency tally", e);
+    }
+  },
+
+  clearCurrencyTally(): void {
+    if (!this.isAvailable()) return;
+    try {
+      localStorage.removeItem(OFFLINE_STORAGE_KEYS.CURRENCY_TALLY);
     } catch (e) {
       console.error(e);
     }
