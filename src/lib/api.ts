@@ -44,6 +44,7 @@ export interface TranslateResult {
 export interface AssistantResult {
   reply: string;
   source: string;
+  action?: string;
   isOffline?: boolean;
 }
 
@@ -220,11 +221,13 @@ export const CompanioAPI = {
   ): Promise<AssistantResult> => {
     if (isBrowserOffline()) {
       const offlineAnswer = answerOffline(message, context);
-      return {
-        reply: offlineAnswer.reply,
-        source: offlineAnswer.source,
-        isOffline: true,
-      };
+
+return {
+  reply: offlineAnswer.reply,
+  source: offlineAnswer.source,
+  action: offlineAnswer.action || "none",
+  isOffline: true,
+};
     }
 
     try {
@@ -236,12 +239,14 @@ export const CompanioAPI = {
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     } catch {
-      const offlineAnswer = answerOffline(message, context);
-      return {
-        reply: offlineAnswer.reply,
-        source: offlineAnswer.source,
-        isOffline: true,
-      };
+     const offlineAnswer = answerOffline(message, context);
+
+return {
+  reply: offlineAnswer.reply,
+  source: offlineAnswer.source,
+  action: offlineAnswer.action || "none",
+  isOffline: true,
+};
     }
   },
 };

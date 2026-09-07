@@ -1,9 +1,25 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+} from "react";
+
 import { supabase } from "@/lib/supabase";
-import { fetchUserProfile, upsertUserProfile } from "@/lib/supabaseService";
-import { getSharedAudioContext, playAudioData, stopAudioData } from "@/lib/audioManager";
+import {
+  fetchUserProfile,
+  upsertUserProfile,
+} from "@/lib/supabaseService";
+
+import {
+  getSharedAudioContext,
+  playAudioData,
+  stopAudioData,
+} from "@/lib/audioManager";
 
 export type PresetType = "visual" | "hearing" | "motor" | "standard";
 
@@ -30,11 +46,11 @@ interface PersistedState {
   ocrAutoTranslate: boolean;
 }
 
-// Global reference to prevent garbage collection of active utterance and manage audio in Chromium/WebKit
 let activeUtterance: SpeechSynthesisUtterance | null = null;
 let activeAudioElement: HTMLAudioElement | null = null;
 let speechDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let speechSessionCount = 0;
+
 const ttsAudioCache = new Map<string, string>();
 
 const defaultState: PersistedState = {
@@ -44,7 +60,10 @@ const defaultState: PersistedState = {
   speechPitch: 1.0,
   voiceGuidanceActive: true,
   wakeWordActive: false,
-  userProfile: { name: "Alex", preset: "standard" },
+  userProfile: {
+    name: "Alex",
+    preset: "standard",
+  },
   captionSize: "md",
   reducedMotion: false,
   ttsVoice: "neural-f",
@@ -52,540 +71,722 @@ const defaultState: PersistedState = {
 };
 
 function loadPersistedState(): PersistedState {
-  if (typeof window === "undefined") return defaultState;
+  if (typeof window === "undefined") {
+    return defaultState;
+  }
+
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
+
     if (raw) {
       const parsed = JSON.parse(raw);
-      return { ...defaultState, ...parsed };
+
+      return {
+        ...defaultState,
+        ...parsed,
+      };
     }
   } catch (e) {
-    console.error("Failed to load persisted accessibility state", e);
+    console.error(
+      "Failed to load persisted accessibility state",
+      e
+    );
   }
+
   return defaultState;
 }
 
 interface AccessibilityContextType {
   theme: "standard" | "dark" | "high-contrast";
   toggleTheme: () => void;
-  setThemeMode: (mode: "standard" | "dark" | "high-contrast") => void;
+  setThemeMode: (
+    mode: "standard" | "dark" | "high-contrast"
+  ) => void;
+
   voiceVolume: number;
   setVoiceVolume: (v: number) => void;
+
   speechRate: number;
   setSpeechRate: (r: number) => void;
+
   speechPitch: number;
   setSpeechPitch: (p: number) => void;
+
   voiceGuidanceActive: boolean;
   setVoiceGuidanceActive: (active: boolean) => void;
+
   wakeWordActive: boolean;
   setWakeWordActive: (active: boolean) => void;
+
   userProfile: UserProfile;
   setUserProfile: (profile: UserProfile) => void;
+
   applyPreset: (preset: PresetType) => void;
-  speak: (text: string, force?: boolean, lang?: string) => void;
+
+  speak: (
+    text: string,
+    force?: boolean,
+    lang?: string
+  ) => void;
+
   stopSpeaking: () => void;
+
   isSpeaking: boolean;
+
   isAssistantOpen: boolean;
   setIsAssistantOpen: (open: boolean) => void;
+
   isSidebarOpen: boolean;
   setIsSidebarOpen: (open: boolean) => void;
+
   toggleSidebar: () => void;
+
   captionSize: CaptionSize;
   setCaptionSize: (size: CaptionSize) => void;
+
   reducedMotion: boolean;
   setReducedMotion: (v: boolean) => void;
+
   ttsVoice: string;
   setTtsVoice: (v: string) => void;
+
   ocrAutoTranslate: boolean;
   setOcrAutoTranslate: (v: boolean) => void;
 }
 
-const AccessibilityContext = createContext<AccessibilityContextType | undefined>(undefined);
+const AccessibilityContext =
+  createContext<AccessibilityContextType | undefined>(
+    undefined
+  );
 
-export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [initialized, setInitialized] = useState(false);
-  const [theme, setTheme] = useState<PersistedState["theme"]>(defaultState.theme);
-  const [voiceVolume, setVoiceVolume] = useState<number>(defaultState.voiceVolume);
-  const [speechRate, setSpeechRate] = useState<number>(defaultState.speechRate);
-  const [speechPitch, setSpeechPitch] = useState<number>(defaultState.speechPitch);
-  const [voiceGuidanceActive, setVoiceGuidanceActive] = useState<boolean>(defaultState.voiceGuidanceActive);
-  const [wakeWordActive, setWakeWordActive] = useState<boolean>(defaultState.wakeWordActive);
-  const [userProfile, setUserProfile] = useState<UserProfile>(defaultState.userProfile);
-  const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
-  const [isAssistantOpen, setIsAssistantOpen] = useState<boolean>(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
-  const [captionSize, setCaptionSize] = useState<CaptionSize>(defaultState.captionSize);
-  const [reducedMotion, setReducedMotion] = useState<boolean>(defaultState.reducedMotion);
-  const [ttsVoice, setTtsVoice] = useState<string>(defaultState.ttsVoice);
-  const [ocrAutoTranslate, setOcrAutoTranslate] = useState<boolean>(defaultState.ocrAutoTranslate);
+export const AccessibilityProvider: React.FC<{
+  children: React.ReactNode;
+}> = ({ children }) => {
+  const [state, setState] =
+    useState<PersistedState>(loadPersistedState);
 
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [isSpeaking, setIsSpeaking] =
+    useState(false);
 
-  // Hydrate from localStorage on mount
+  const [isAssistantOpen, setIsAssistantOpen] =
+    useState(false);
+
+  const [isSidebarOpen, setIsSidebarOpen] =
+    useState(false);
+
+  const voicesRef =
+    useRef<SpeechSynthesisVoice[]>([]);
+  
+
+  // Used to delay the sidebar-open announcement
+  const sidebarSpeechTimerRef =
+    useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /*
+   * Load browser voices
+   */
   useEffect(() => {
-    const saved = loadPersistedState();
-    setTheme(saved.theme);
-    setVoiceVolume(saved.voiceVolume);
-    setSpeechRate(saved.speechRate);
-    setSpeechPitch(saved.speechPitch);
-    setVoiceGuidanceActive(saved.voiceGuidanceActive);
-    setWakeWordActive(saved.wakeWordActive ?? false);
-    setUserProfile(saved.userProfile);
-    setCaptionSize(saved.captionSize);
-    setReducedMotion(saved.reducedMotion);
-    setTtsVoice(saved.ttsVoice);
-    setOcrAutoTranslate(saved.ocrAutoTranslate);
-    setInitialized(true);
-
-    // Sync from Supabase if logged in
-    supabase.auth.getSession().then(({ data }) => {
-      const uid = data.session?.user?.id;
-      if (uid) {
-        setCurrentUserId(uid);
-        fetchUserProfile(uid).then((prof) => {
-          if (prof) {
-            if (prof.name || prof.preset) {
-              setUserProfile({
-                name: prof.name || saved.userProfile.name,
-                preset: (prof.preset as PresetType) || saved.userProfile.preset,
-              });
-            }
-            if (prof.high_contrast) setTheme("high-contrast");
-            if (prof.speech_rate) setSpeechRate(Number(prof.speech_rate));
-            if (prof.speech_pitch) setSpeechPitch(Number(prof.speech_pitch));
-            if (prof.caption_size) setCaptionSize(prof.caption_size as CaptionSize);
-            if (prof.reduced_motion !== undefined) setReducedMotion(prof.reduced_motion);
-            if (prof.tts_voice) setTtsVoice(prof.tts_voice);
-            if (prof.ocr_auto_translate !== undefined) setOcrAutoTranslate(prof.ocr_auto_translate);
-          }
-        }).catch(() => {});
-      }
-    }).catch(() => {});
-
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-      const uid = session?.user?.id || null;
-      setCurrentUserId(uid);
-      if (uid) {
-        fetchUserProfile(uid).then((prof) => {
-          if (prof) {
-            if (prof.name || prof.preset) {
-              setUserProfile({
-                name: prof.name || "Alex",
-                preset: (prof.preset as PresetType) || "standard",
-              });
-            }
-            if (prof.high_contrast) setTheme("high-contrast");
-            if (prof.speech_rate) setSpeechRate(Number(prof.speech_rate));
-            if (prof.speech_pitch) setSpeechPitch(Number(prof.speech_pitch));
-            if (prof.caption_size) setCaptionSize(prof.caption_size as CaptionSize);
-            if (prof.reduced_motion !== undefined) setReducedMotion(prof.reduced_motion);
-            if (prof.tts_voice) setTtsVoice(prof.tts_voice);
-            if (prof.ocr_auto_translate !== undefined) setOcrAutoTranslate(prof.ocr_auto_translate);
-          }
-        }).catch(() => {});
-      }
-    });
-
-    return () => {
-      authListener.subscription.unsubscribe();
-    };
-  }, []);
-
-  // Persist state changes to localStorage and Supabase
-  useEffect(() => {
-    if (!initialized) return;
-    const state: PersistedState = {
-      theme,
-      voiceVolume,
-      speechRate,
-      speechPitch,
-      voiceGuidanceActive,
-      wakeWordActive,
-      userProfile,
-      captionSize,
-      reducedMotion,
-      ttsVoice,
-      ocrAutoTranslate,
-    };
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch (e) {
-      console.error("Failed to persist accessibility state", e);
-    }
-
-    // Sync to Supabase in background if user is authenticated
-    if (currentUserId) {
-      const timer = setTimeout(() => {
-        upsertUserProfile(currentUserId, {
-          name: userProfile.name,
-          preset: userProfile.preset,
-          high_contrast: theme === "high-contrast",
-          speech_rate: speechRate,
-          speech_pitch: speechPitch,
-          caption_size: captionSize,
-          reduced_motion: reducedMotion,
-          tts_voice: ttsVoice,
-          ocr_auto_translate: ocrAutoTranslate,
-        }).catch(() => {});
-      }, 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [initialized, currentUserId, theme, voiceVolume, speechRate, speechPitch, voiceGuidanceActive, wakeWordActive, userProfile, captionSize, reducedMotion, ttsVoice, ocrAutoTranslate]);
-
-  // Apply theme to document root and body — each theme class is managed independently
-  useEffect(() => {
-    if (!initialized) return;
-    const root = document.documentElement;
-    const body = document.body;
-    // Always reset both theme classes first, then apply the correct one
-    root.classList.remove("dark", "high-contrast");
-    body.classList.remove("dark", "high-contrast");
-    if (theme === "dark") {
-      root.classList.add("dark");
-      body.classList.add("dark");
-    } else if (theme === "high-contrast") {
-      root.classList.add("high-contrast");
-      body.classList.add("high-contrast");
-    }
-    // "standard" → no class (inherits :root token values)
-  }, [theme, initialized]);
-
-  // Apply reduced motion to document body
-  useEffect(() => {
-    if (!initialized) return;
-    if (reducedMotion) {
-      document.body.classList.add("reduced-motion");
-    } else {
-      document.body.classList.remove("reduced-motion");
-    }
-  }, [reducedMotion, initialized]);
-
-  // Handle SpeechSynthesis speaking states
-  useEffect(() => {
-    if (typeof window !== "undefined" && window.speechSynthesis) {
-      const handleStatus = () => {
-        setIsSpeaking(window.speechSynthesis.speaking);
-      };
-      const interval = setInterval(handleStatus, 200);
-      return () => clearInterval(interval);
-    }
-  }, []);
-
-  // 3-way cycle: standard → dark → high-contrast → standard
-  const toggleTheme = () => {
-    setTheme((prev) => {
-      if (prev === "standard") return "dark";
-      if (prev === "dark") return "high-contrast";
-      return "standard";
-    });
-  };
-
-  // Explicit setter (used by settings page segmented control)
-  const setThemeMode = (mode: "standard" | "dark" | "high-contrast") => {
-    setTheme(mode);
-  };
-
-  const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
-
-  // Cache voices and listen for voiceschanged event (common async load in Chromium)
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.speechSynthesis) return;
-
-    const updateVoices = () => {
-      const v = window.speechSynthesis.getVoices() || [];
-      if (v.length > 0) {
-        voicesRef.current = v;
-      }
-    };
-
-    updateVoices();
-    window.speechSynthesis.addEventListener("voiceschanged", updateVoices);
-
-    // Prime WebAudio and speech engine on user interaction for mobile autoplay compliance
-    const unlockAudio = () => {
-      getSharedAudioContext();
-      if (window.speechSynthesis && window.speechSynthesis.paused) {
-        window.speechSynthesis.resume();
-      }
-    };
-    window.addEventListener("touchstart", unlockAudio, { passive: true });
-    window.addEventListener("pointerdown", unlockAudio, { passive: true });
-    window.addEventListener("click", unlockAudio, { passive: true });
-
-    return () => {
-      window.speechSynthesis.removeEventListener("voiceschanged", updateVoices);
-      window.removeEventListener("touchstart", unlockAudio);
-      window.removeEventListener("pointerdown", unlockAudio);
-      window.removeEventListener("click", unlockAudio);
-    };
-  }, []);
-
-  const applyPreset = (preset: PresetType) => {
-    setUserProfile((prev) => ({ ...prev, preset }));
-    if (preset === "visual") {
-      setTheme("high-contrast");
-      setVoiceGuidanceActive(true);
-      speak("Visual accessibility profile activated. High contrast mode is enabled, and voice guidance is active.", true);
-    } else if (preset === "hearing") {
-      setTheme("standard");
-      speak("Hearing accessibility profile activated. Subtitles and visual cues are prioritized.", true);
-    } else if (preset === "motor") {
-      setTheme("standard");
-      speak("Motor accessibility profile activated. Touch targets are expanded for easier interaction.", true);
-    } else {
-      setTheme("standard");
-      speak("Standard accessibility profile activated.", true);
-    }
-  };
-
-  const speak = useCallback((text: string, force = false, langOverride?: string) => {
     if (typeof window === "undefined") return;
 
-    if (!voiceGuidanceActive && !force) return;
+    const loadVoices = () => {
+      voicesRef.current =
+        window.speechSynthesis.getVoices();
+    };
 
-    const cleanText = text.trim();
-    if (!cleanText) return;
+    loadVoices();
 
-    if (speechDebounceTimer) {
-      clearTimeout(speechDebounceTimer);
+    window.speechSynthesis.addEventListener(
+      "voiceschanged",
+      loadVoices
+    );
+
+    return () => {
+      window.speechSynthesis.removeEventListener(
+        "voiceschanged",
+        loadVoices
+      );
+    };
+  }, []);
+
+  /*
+   * Unlock audio on user interaction
+   */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const unlockAudio = () => {
+  try {
+    const audioContext = getSharedAudioContext();
+
+    if (audioContext && audioContext.state === "suspended") {
+      audioContext.resume();
     }
 
-    // Cancel any active speech or audio immediately to prevent echoing or overlapping
-    stopSpeaking();
-
-    // Increment speech session token so stale calls are ignored
-    const thisSessionId = ++speechSessionCount;
-
-    // Determine target language
-    let targetLang = langOverride || "";
-    if (!targetLang) {
-      if (/[\u0600-\u06FF]/.test(cleanText) || /[\u0679\u0686\u0698\u0691\u06AF\u06BA\u06BE\u06CC]/.test(cleanText) || /\b(yaar|baat|suno|kya|hai|karo|shukriya|nahin|nahi|apka|mera|kaise|theek|madad|bhai|salam)\b/i.test(cleanText)) {
-        targetLang = "ur";
-      } else if (/[\u0900-\u097F]/.test(cleanText)) {
-        targetLang = "hi";
-      } else if (/[\u3040-\u30ff]/.test(cleanText)) {
-        targetLang = "ja";
-      } else if (/[\u4e00-\u9fff]/.test(cleanText)) {
-        targetLang = "zh-CN";
-      } else if (/\b(hola|gracias|buenos|dias|tardes|por favor|amigo|como estas|donde|esta)\b/i.test(cleanText)) {
-        targetLang = "es";
-      } else if (/\b(bonjour|merci|oui|non|s'il vous plait|ou est)\b/i.test(cleanText)) {
-        targetLang = "fr";
-      } else if (/\b(danke|bitte|hallo|guten|wo ist)\b/i.test(cleanText)) {
-        targetLang = "de";
-      } else {
-        targetLang = "en";
-      }
+    if (window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
     }
+  } catch (error) {
+    console.error("Failed to unlock audio", error);
+  }
+};
 
-    const langPrefix = targetLang.split("-")[0].toLowerCase();
-    const ietfTag = targetLang === "ur" ? "ur-PK" : targetLang === "hi" ? "hi-IN" : targetLang === "ja" ? "ja-JP" : targetLang === "zh-CN" ? "zh-CN" : targetLang === "es" ? "es-ES" : targetLang === "fr" ? "fr-FR" : targetLang === "de" ? "de-DE" : "en-US";
+    window.addEventListener(
+      "touchstart",
+      unlockAudio,
+      { once: true }
+    );
 
-    // Fast Instant Browser SpeechSynthesis (0ms local execution)
-    const speakWithBrowserSynthesis = (): boolean => {
-      if (typeof window === "undefined" || !window.speechSynthesis) return false;
+    window.addEventListener(
+      "pointerdown",
+      unlockAudio,
+      { once: true }
+    );
+
+    window.addEventListener(
+      "click",
+      unlockAudio,
+      { once: true }
+    );
+
+    return () => {
+      window.removeEventListener(
+        "touchstart",
+        unlockAudio
+      );
+
+      window.removeEventListener(
+        "pointerdown",
+        unlockAudio
+      );
+
+      window.removeEventListener(
+        "click",
+        unlockAudio
+      );
+    };
+  }, []);
+
+  /*
+   * Save state
+   */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    try {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify(state)
+      );
+    } catch (error) {
+      console.error(
+        "Failed to save accessibility settings",
+        error
+      );
+    }
+  }, [state]);
+
+  /*
+   * Stop speaking
+   */
+  const stopSpeaking = useCallback(() => {
+    if (typeof window === "undefined") return;
+
+    speechSessionCount++;
+
+    if (activeUtterance) {
       try {
-        if (window.speechSynthesis.paused) {
-          window.speechSynthesis.resume();
+        window.speechSynthesis.cancel();
+      } catch {}
+      activeUtterance = null;
+    }
+
+    if (activeAudioElement) {
+      try {
+        activeAudioElement.pause();
+        activeAudioElement.currentTime = 0;
+      } catch {}
+
+      activeAudioElement = null;
+    }
+
+    try {
+      stopAudioData();
+    } catch {}
+
+    setIsSpeaking(false);
+  }, []);
+
+  /*
+   * Speak text
+   */
+  const speak = useCallback(
+    (
+      text: string,
+      force = false,
+      lang?: string
+    ) => {
+      if (
+        typeof window === "undefined" ||
+        !text.trim()
+      ) {
+        return;
+      }
+
+      if (
+        !force &&
+        !state.voiceGuidanceActive
+      ) {
+        return;
+      }
+
+      const cleanText = text.trim();
+
+      if (speechDebounceTimer) {
+        clearTimeout(speechDebounceTimer);
+        speechDebounceTimer = null;
+      }
+
+      stopSpeaking();
+
+      const currentSession =
+        ++speechSessionCount;
+
+      /*
+       * Detect language
+       */
+      let targetLang = lang || "en";
+
+      if (
+        /[\u0600-\u06FF]/.test(cleanText)
+      ) {
+        targetLang = "ur";
+      } else if (
+        /[\u0900-\u097F]/.test(cleanText)
+      ) {
+        targetLang = "hi";
+      } else if (
+        /[\u3040-\u30FF]/.test(cleanText)
+      ) {
+        targetLang = "ja";
+      } else if (
+        /[\u4E00-\u9FFF]/.test(cleanText)
+      ) {
+        targetLang = "zh";
+      }
+
+      /*
+       * Browser Speech Synthesis
+       */
+      if ("speechSynthesis" in window) {
+        const utterance =
+          new SpeechSynthesisUtterance(
+            cleanText
+          );
+
+        utterance.lang = targetLang;
+
+        utterance.volume =
+          state.voiceVolume;
+
+        utterance.rate =
+          state.speechRate;
+
+        utterance.pitch =
+          state.speechPitch;
+
+        const voices =
+          voicesRef.current;
+
+        const matchingVoice =
+          voices.find((voice) =>
+            voice.lang
+              .toLowerCase()
+              .startsWith(
+                targetLang.toLowerCase()
+              )
+          );
+
+        if (matchingVoice) {
+          utterance.voice =
+            matchingVoice;
         }
 
-        const voices: SpeechSynthesisVoice[] = voicesRef.current.length > 0 
-          ? voicesRef.current 
-          : (window.speechSynthesis.getVoices?.() || []);
-
-        const matchingVoices = voices.filter((v) => 
-          v.lang.toLowerCase().replace("_", "-").startsWith(langPrefix)
-        );
-
-        // If Urdu on a system without Urdu voice pack, let server TTS handle it
-        if (targetLang === "ur" && matchingVoices.length === 0) {
-          return false;
-        }
-
-        const utterance = new SpeechSynthesisUtterance(cleanText);
-        utterance.volume = 1.0;
-        utterance.rate = Math.max(0.7, Math.min(1.8, speechRate));
-        utterance.lang = ietfTag;
-
-        if (matchingVoices.length > 0) {
-          if (ttsVoice === "neural-m") {
-            const maleVoice = matchingVoices.find((v) => 
-              /(david|george|james|mark|richard|thomas|daniel|alex|guy|male|diego|jorge|pablo|en-us-guy|stefan)/i.test(v.name)
-            );
-            utterance.voice = maleVoice || matchingVoices[0];
-            utterance.pitch = Math.max(0.5, Math.min(1.1, speechPitch * 0.85));
-          } else if (ttsVoice === "neural-f") {
-            const femaleVoice = matchingVoices.find((v) => 
-              /(zira|hazel|samantha|victoria|jenny|female|heera|carmen|monica|en-us-jenny|hedda)/i.test(v.name)
-            );
-            utterance.voice = femaleVoice || matchingVoices[0];
-            utterance.pitch = Math.max(0.8, Math.min(1.8, speechPitch * 1.15));
-          } else {
-            utterance.voice = matchingVoices[0];
-            utterance.pitch = Math.max(0.6, Math.min(1.5, speechPitch));
-          }
-        }
+        activeUtterance = utterance;
 
         utterance.onstart = () => {
-          if (thisSessionId === speechSessionCount) {
+          if (
+            currentSession ===
+            speechSessionCount
+          ) {
             setIsSpeaking(true);
           }
         };
 
         utterance.onend = () => {
-          if (thisSessionId === speechSessionCount) {
+          if (
+            currentSession ===
+            speechSessionCount
+          ) {
             setIsSpeaking(false);
             activeUtterance = null;
           }
         };
 
-        utterance.onerror = () => {
-          if (thisSessionId === speechSessionCount) {
-            setIsSpeaking(false);
-            activeUtterance = null;
-            // Fallback to server audio stream if local speech threw error
-            playNaturalAudioStream();
-          }
-        };
-
-        activeUtterance = utterance;
-        (window as any).__companioUtterance = utterance;
-
-        if (window.speechSynthesis.paused) {
-          window.speechSynthesis.resume();
-        }
-
-        window.speechSynthesis.speak(utterance);
-        return true;
-      } catch (err) {
-        console.warn("Direct browser speech synthesis error:", err);
-        return false;
-      }
-    };
-
-    // Helper: Play natural audio stream from server
-    const playNaturalAudioStream = async () => {
-      try {
-        const cacheKey = `${targetLang}_${cleanText}`;
-        const cachedUrl = ttsAudioCache.get(cacheKey);
-
-        if (cachedUrl && thisSessionId === speechSessionCount) {
-          setIsSpeaking(true);
-          const played = await playAudioData(cachedUrl, () => {
-            if (thisSessionId === speechSessionCount) {
-              setIsSpeaking(false);
-            }
-          });
-          if (played) {
+        utterance.onerror = async () => {
+          if (
+            currentSession !==
+            speechSessionCount
+          ) {
             return;
           }
-        }
 
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3500);
+          activeUtterance = null;
 
-        const res = await fetch("/api/tts/speak", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: cleanText, lang: targetLang }),
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
+          try {
+            const response =
+              await fetch(
+                "/api/tts/speak",
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type":
+                      "application/json",
+                  },
+                  body: JSON.stringify({
+                    text: cleanText,
+                    lang: targetLang,
+                  }),
+                }
+              );
 
-        if (thisSessionId !== speechSessionCount) return;
+            if (!response.ok) {
+              throw new Error(
+                "TTS request failed"
+              );
+            }
 
-        if (res.ok) {
-          const data = await res.json();
-          if (data.audioUrl && thisSessionId === speechSessionCount) {
-            ttsAudioCache.set(cacheKey, data.audioUrl);
-            setIsSpeaking(true);
-            const played = await playAudioData(data.audioUrl, () => {
-              if (thisSessionId === speechSessionCount) {
-                setIsSpeaking(false);
-              }
-            });
-            if (played) {
+            const data =
+              await response.json();
+
+            if (
+              currentSession !==
+              speechSessionCount
+            ) {
               return;
             }
+
+            if (data.audioUrl) {
+              const audio =
+                new Audio(
+                  data.audioUrl
+                );
+
+              audio.volume =
+                state.voiceVolume;
+
+              activeAudioElement =
+                audio;
+
+              audio.onplay = () => {
+                if (
+                  currentSession ===
+                  speechSessionCount
+                ) {
+                  setIsSpeaking(true);
+                }
+              };
+
+              audio.onended = () => {
+                if (
+                  currentSession ===
+                  speechSessionCount
+                ) {
+                  setIsSpeaking(false);
+                  activeAudioElement =
+                    null;
+                }
+              };
+
+              await audio.play();
+            }
+          } catch (error) {
+            console.error(
+              "TTS fallback failed",
+              error
+            );
+
+            setIsSpeaking(false);
           }
+        };
+
+        try {
+          window.speechSynthesis.speak(
+            utterance
+          );
+        } catch (error) {
+          console.error(
+            "Speech synthesis failed",
+            error
+          );
         }
-      } catch (err) {
-        console.warn("Natural audio stream catch:", err);
       }
-    };
+    },
+    [
+      state.voiceGuidanceActive,
+      state.voiceVolume,
+      state.speechRate,
+      state.speechPitch,
+      stopSpeaking,
+    ]
+  );
 
-    // Try instant local browser synthesis first (0ms latency)
-    const startedInstantly = speakWithBrowserSynthesis();
-    if (!startedInstantly) {
-      // Fallback to natural audio stream from server
-      playNaturalAudioStream();
+  /*
+   * Apply accessibility preset
+   */
+  const applyPreset = useCallback(
+    (preset: PresetType) => {
+      setState((prev) => ({
+        ...prev,
+        userProfile: {
+          ...prev.userProfile,
+          preset,
+        },
+      }));
+
+      const messages: Record<
+        PresetType,
+        string
+      > = {
+        visual:
+          "Visual accessibility mode selected.",
+        hearing:
+          "Hearing accessibility mode selected.",
+        motor:
+          "Motor accessibility mode selected.",
+        standard:
+          "Standard accessibility mode selected.",
+      };
+
+      speak(messages[preset], true);
+    },
+    [speak]
+  );
+
+  /*
+   * Theme
+   */
+  const toggleTheme = () => {
+    setState((prev) => {
+      const nextTheme =
+        prev.theme === "standard"
+          ? "dark"
+          : prev.theme === "dark"
+          ? "high-contrast"
+          : "standard";
+
+      return {
+        ...prev,
+        theme: nextTheme,
+      };
+    });
+  };
+
+  const setThemeMode = (
+    mode:
+      | "standard"
+      | "dark"
+      | "high-contrast"
+  ) => {
+    setState((prev) => ({
+      ...prev,
+      theme: mode,
+    }));
+  };
+
+  /*
+   * Sidebar toggle
+   *
+   * IMPORTANT:
+   * The sidebar still opens immediately.
+   * The announcement happens 1 second later.
+   */
+  const toggleSidebar = () => {
+    const willOpen = !isSidebarOpen;
+
+    setIsSidebarOpen(willOpen);
+
+    if (sidebarSpeechTimerRef.current) {
+      clearTimeout(
+        sidebarSpeechTimerRef.current
+      );
+
+      sidebarSpeechTimerRef.current = null;
     }
-  }, [voiceGuidanceActive, speechRate, speechPitch, ttsVoice]);
 
-  const stopSpeaking = () => {
-    if (typeof window !== "undefined") {
-      stopAudioData();
-      if (activeAudioElement) {
-        try {
-          activeAudioElement.pause();
-          activeAudioElement.currentTime = 0;
-        } catch {}
-        activeAudioElement = null;
-      }
-      if (window.speechSynthesis) {
-        if (speechDebounceTimer) clearTimeout(speechDebounceTimer);
-        try {
-          window.speechSynthesis.cancel();
-        } catch {}
-        activeUtterance = null;
-        setIsSpeaking(false);
-      }
+    if (willOpen) {
+      sidebarSpeechTimerRef.current =
+        setTimeout(() => {
+          speak(
+            "Accessibility sidebar opened. Use the options in the sidebar to navigate and adjust your accessibility settings.",
+            true
+          );
+
+          sidebarSpeechTimerRef.current =
+            null;
+        }, 1000);
     }
   };
 
-  // Don't render children until state is hydrated from localStorage
-  if (!initialized) {
-    return null;
-  }
+  /*
+   * Clean up sidebar timer
+   */
+  useEffect(() => {
+    return () => {
+      if (sidebarSpeechTimerRef.current) {
+        clearTimeout(
+          sidebarSpeechTimerRef.current
+        );
+      }
+    };
+  }, []);
 
-  const toggleSidebar = () => {
-    setIsSidebarOpen((prev) => !prev);
+  /*
+   * State setters
+   */
+  const setVoiceVolume = (v: number) => {
+    setState((prev) => ({
+      ...prev,
+      voiceVolume: v,
+    }));
+  };
+
+  const setSpeechRate = (r: number) => {
+    setState((prev) => ({
+      ...prev,
+      speechRate: r,
+    }));
+  };
+
+  const setSpeechPitch = (p: number) => {
+    setState((prev) => ({
+      ...prev,
+      speechPitch: p,
+    }));
+  };
+
+  const setVoiceGuidanceActive = (
+    active: boolean
+  ) => {
+    setState((prev) => ({
+      ...prev,
+      voiceGuidanceActive: active,
+    }));
+  };
+
+  const setWakeWordActive = (
+    active: boolean
+  ) => {
+    setState((prev) => ({
+      ...prev,
+      wakeWordActive: active,
+    }));
+  };
+
+  const setUserProfile = (
+    profile: UserProfile
+  ) => {
+    setState((prev) => ({
+      ...prev,
+      userProfile: profile,
+    }));
+  };
+
+  const setCaptionSize = (
+    size: CaptionSize
+  ) => {
+    setState((prev) => ({
+      ...prev,
+      captionSize: size,
+    }));
+  };
+
+  const setReducedMotion = (
+    value: boolean
+  ) => {
+    setState((prev) => ({
+      ...prev,
+      reducedMotion: value,
+    }));
+  };
+
+  const setTtsVoice = (value: string) => {
+    setState((prev) => ({
+      ...prev,
+      ttsVoice: value,
+    }));
+  };
+
+  const setOcrAutoTranslate = (
+    value: boolean
+  ) => {
+    setState((prev) => ({
+      ...prev,
+      ocrAutoTranslate: value,
+    }));
   };
 
   return (
     <AccessibilityContext.Provider
       value={{
-        theme,
+        theme: state.theme,
         toggleTheme,
         setThemeMode,
-        voiceVolume,
+
+        voiceVolume: state.voiceVolume,
         setVoiceVolume,
-        speechRate,
+
+        speechRate: state.speechRate,
         setSpeechRate,
-        speechPitch,
+
+        speechPitch: state.speechPitch,
         setSpeechPitch,
-        voiceGuidanceActive,
+
+        voiceGuidanceActive:
+          state.voiceGuidanceActive,
         setVoiceGuidanceActive,
-        wakeWordActive,
+
+        wakeWordActive:
+          state.wakeWordActive,
         setWakeWordActive,
-        userProfile,
+
+        userProfile: state.userProfile,
         setUserProfile,
+
         applyPreset,
+
         speak,
         stopSpeaking,
         isSpeaking,
+
         isAssistantOpen,
         setIsAssistantOpen,
+
         isSidebarOpen,
         setIsSidebarOpen,
         toggleSidebar,
-        captionSize,
+
+        captionSize: state.captionSize,
         setCaptionSize,
-        reducedMotion,
+
+        reducedMotion:
+          state.reducedMotion,
         setReducedMotion,
-        ttsVoice,
+
+        ttsVoice: state.ttsVoice,
         setTtsVoice,
-        ocrAutoTranslate,
+
+        ocrAutoTranslate:
+          state.ocrAutoTranslate,
         setOcrAutoTranslate,
       }}
     >
@@ -594,10 +795,17 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 };
 
-export const useAccessibility = () => {
-  const context = useContext(AccessibilityContext);
-  if (!context) {
-    throw new Error("useAccessibility must be used within an AccessibilityProvider");
-  }
-  return context;
-};
+export const useAccessibility =
+  () => {
+    const context = useContext(
+      AccessibilityContext
+    );
+
+    if (!context) {
+      throw new Error(
+        "useAccessibility must be used inside AccessibilityProvider"
+      );
+    }
+
+    return context;
+  };

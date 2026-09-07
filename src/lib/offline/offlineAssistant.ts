@@ -6,7 +6,7 @@
 export interface OfflineAssistantResponse {
   reply: string;
   source: "offline-assistant" | "offline-emergency" | "offline-guide";
-  suggestedAction?: string;
+  action?: string;
 }
 
 export function answerOffline(message: string, _context?: string): OfflineAssistantResponse {
@@ -31,7 +31,7 @@ export function answerOffline(message: string, _context?: string): OfflineAssist
     return {
       reply: "If you are in immediate danger or need medical help, please dial 911 or your local emergency services right away. You can also use the 'Emergency (Urgencies)' board in Speak For Me.",
       source: "offline-emergency",
-      suggestedAction: "/home/type-to-speak",
+      action: "open_emergency",
     };
   }
 
@@ -47,7 +47,7 @@ export function answerOffline(message: string, _context?: string): OfflineAssist
     return {
       reply: "High Contrast Mode provides high visibility pitch-black backgrounds with stark white text. You can toggle it anytime using the eye icon in the top navigation bar or under Settings.",
       source: "offline-guide",
-      suggestedAction: "/settings",
+      action: "open_settings",
     };
   }
 
@@ -64,7 +64,7 @@ export function answerOffline(message: string, _context?: string): OfflineAssist
     return {
       reply: "You can customize speech rate, pitch, volume, and voice guidance toggles directly in the Settings page under the 'Speech & Narrator' section.",
       source: "offline-guide",
-      suggestedAction: "/settings",
+      action: "open_settings",
     };
   }
 
@@ -80,7 +80,7 @@ export function answerOffline(message: string, _context?: string): OfflineAssist
     return {
       reply: "To read signs, documents, or medication labels aloud, use the 'Read Text (OCR)' module on the Home screen and point your camera at the text.",
       source: "offline-guide",
-      suggestedAction: "/home/ocr",
+      action: "open_ocr",
     };
   }
 
@@ -97,7 +97,7 @@ export function answerOffline(message: string, _context?: string): OfflineAssist
     return {
       reply: "You can use 'Narrate Environment' or 'Explore Room' on the Home screen. Slowly sweep your camera across the area to detect objects, doors, and potential obstacles.",
       source: "offline-guide",
-      suggestedAction: "/home/scene-desc",
+      action: "open_scene_description",
     };
   }
 
@@ -112,7 +112,7 @@ export function answerOffline(message: string, _context?: string): OfflineAssist
     return {
       reply: "Open 'Speak For Me' to tap pre-made response buttons like 'Yes', 'Thank you', or 'Need directions', or type your own custom messages to speak aloud.",
       source: "offline-guide",
-      suggestedAction: "/home/type-to-speak",
+      action: "open_type_to_speak",
     };
   }
 
@@ -127,7 +127,7 @@ export function answerOffline(message: string, _context?: string): OfflineAssist
     return {
       reply: "The 'Live Captions' module transcribes speech around your microphone in real-time with large, zoomable text and sound event alerts.",
       source: "offline-guide",
-      suggestedAction: "/home/captions",
+      action: "open_captions",
     };
   }
 
@@ -144,7 +144,7 @@ export function answerOffline(message: string, _context?: string): OfflineAssist
     return {
       reply: "Companio includes an offline translation engine with support for 8 languages including Spanish, French, Arabic, Hindi, Chinese, German, Japanese, and Urdu in the 'Live Translation' module.",
       source: "offline-guide",
-      suggestedAction: "/home/translation",
+      action: "open_translation",
     };
   }
 

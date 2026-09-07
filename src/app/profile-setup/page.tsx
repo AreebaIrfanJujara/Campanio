@@ -1,15 +1,22 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAccessibility, PresetType } from "@/context/AccessibilityContext";
 
 export default function ProfileSetupPage() {
   const router = useRouter();
+
   const { applyPreset, userProfile, speak } = useAccessibility();
+
   const [selected, setSelected] = useState<PresetType>("standard");
 
-  const options: { id: PresetType; title: string; desc: string; icon: string }[] = [
+  const options: {
+    id: PresetType;
+    title: string;
+    desc: string;
+    icon: string;
+  }[] = [
     {
       id: "visual",
       title: "Visual Focus",
@@ -36,9 +43,35 @@ export default function ProfileSetupPage() {
     },
   ];
 
+  const speakAfterDelay = (message: string) => {
+  setTimeout(() => {
+    speak(message, true);
+  }, 500);
+};
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      speak(
+        "Choose Accessibility Profile. The accessibility profile options are displayed in the centre of the page. Hover over each button to hear more information about that profile, then select your preferred option.",
+        true
+      );
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [speak]);
+
   const handleSelect = (id: PresetType) => {
     setSelected(id);
     applyPreset(id);
+
+    const selectedOption = options.find((opt) => opt.id === id);
+
+    if (selectedOption) {
+      speak(
+        `${selectedOption.title} selected. Tap the bottom of the page to save your preferences and proceed to sign in.`,
+        true
+      );
+    }
   };
 
   const handleFocus = (title: string, desc: string) => {
@@ -46,7 +79,11 @@ export default function ProfileSetupPage() {
   };
 
   const handleContinue = () => {
-    speak("Profile preference saved. Opening account sign-in page.", true);
+    speak(
+      "Profile preference saved. Opening account sign-in page.",
+      true
+    );
+
     router.push("/sign-in");
   };
 
@@ -59,9 +96,13 @@ export default function ProfileSetupPage() {
     <div className="flex-grow flex flex-col justify-center w-full px-margin-edge py-stack-lg gap-8">
       {/* Title Block */}
       <div className="text-center md:text-left flex flex-col gap-2">
-        <h1 className="text-3xl font-bold text-on-surface">Choose Accessibility Profile</h1>
+        <h1 className="text-3xl font-bold text-on-surface">
+          Choose Accessibility Profile
+        </h1>
+
         <p className="text-lg text-on-surface-variant">
-          Select the preset that matches your personal preference. You can change this anytime in settings.
+          Select the preset that matches your personal preference. You can
+          change this anytime in settings.
         </p>
       </div>
 
@@ -69,6 +110,7 @@ export default function ProfileSetupPage() {
       <div className="flex flex-col gap-4">
         {options.map((opt) => {
           const isChosen = selected === opt.id;
+
           return (
             <button
               key={opt.id}
@@ -81,29 +123,53 @@ export default function ProfileSetupPage() {
                   : "bg-surface-container border-outline-variant hover:bg-surface-container-high"
               }`}
               style={{
-                minHeight: userProfile.preset === "motor" ? "88px" : "72px",
+                minHeight:
+                  userProfile.preset === "motor" ? "88px" : "72px",
               }}
-              aria-label={`${opt.title}. ${opt.desc}. ${isChosen ? "Selected" : "Not selected. Tap to select."}`}
+              aria-label={`${opt.title}. ${opt.desc}. ${
+                isChosen
+                  ? "Selected"
+                  : "Not selected. Tap to select."
+              }`}
             >
               <div
                 className={`p-3 rounded-full flex items-center justify-center ${
-                  isChosen ? "bg-primary text-white" : "bg-outline/10 text-on-surface-variant"
+                  isChosen
+                    ? "bg-primary text-white"
+                    : "bg-outline/10 text-on-surface-variant"
                 }`}
               >
-                <span className="material-symbols-outlined text-2xl">{opt.icon}</span>
+                <span className="material-symbols-outlined text-2xl">
+                  {opt.icon}
+                </span>
               </div>
+
               <div className="flex-grow flex flex-col justify-center">
-                <h3 className="text-xl font-bold text-on-surface">{opt.title}</h3>
-                <p className="text-base text-on-surface-variant leading-relaxed">{opt.desc}</p>
+                <h3 className="text-xl font-bold text-on-surface">
+                  {opt.title}
+                </h3>
+
+                <p className="text-base text-on-surface-variant leading-relaxed">
+                  {opt.desc}
+                </p>
               </div>
+
               <div className="h-full flex items-center">
                 <span
                   className={`material-symbols-outlined text-3xl ${
-                    isChosen ? "text-primary" : "text-outline/30"
+                    isChosen
+                      ? "text-primary"
+                      : "text-outline/30"
                   }`}
-                  style={{ fontVariationSettings: isChosen ? "'FILL' 1" : "'FILL' 0" }}
+                  style={{
+                    fontVariationSettings: isChosen
+                      ? "'FILL' 1"
+                      : "'FILL' 0",
+                  }}
                 >
-                  {isChosen ? "radio_button_checked" : "radio_button_unchecked"}
+                  {isChosen
+                    ? "radio_button_checked"
+                    : "radio_button_unchecked"}
                 </span>
               </div>
             </button>
@@ -115,9 +181,11 @@ export default function ProfileSetupPage() {
       <div className="flex flex-col gap-3 mt-4">
         <button
           onClick={handleContinue}
+          aria-label="Save accessibility profile and proceed to sign in"
           className="w-full h-[56px] rounded-xl bg-primary text-white font-bold text-lg hover:bg-primary-container active:scale-[0.98] transition-all flex items-center justify-center shadow-md cursor-pointer"
           style={{
-            minHeight: userProfile.preset === "motor" ? "72px" : "56px",
+            minHeight:
+              userProfile.preset === "motor" ? "72px" : "56px",
           }}
         >
           Save & Proceed to Sign In
