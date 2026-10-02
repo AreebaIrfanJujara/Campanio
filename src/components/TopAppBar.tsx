@@ -6,10 +6,12 @@ import { useRouter, usePathname } from "next/navigation";
 
 import { useAccessibility } from "@/context/AccessibilityContext";
 import { useOffline } from "@/context/OfflineContext";
+import { useToast } from "@/context/ToastContext";
 
 export const TopAppBar: React.FC = () => {
   const router = useRouter();
   const pathname = usePathname();
+  const { addToast } = useToast();
 
   const {
     theme,
@@ -72,10 +74,12 @@ export const TopAppBar: React.FC = () => {
     const nextLabels: Record<string, string> = {
       standard: "Dark mode activated",
       dark: "High contrast mode activated",
-      "high-contrast": "Standard mode activated",
+      "high-contrast": "Light mode activated",
     };
 
-    speak(nextLabels[theme] ?? "Theme changed", true);
+    const label = nextLabels[theme] ?? "Theme changed";
+    speak(label, true);
+    addToast(label, "info");
     toggleTheme();
   };
 

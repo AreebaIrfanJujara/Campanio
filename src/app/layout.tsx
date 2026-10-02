@@ -45,8 +45,32 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  var raw = localStorage.getItem('companio_accessibility_settings');
+                  if (raw) {
+                    var parsed = JSON.parse(raw);
+                    if (parsed.theme === 'dark') {
+                      document.documentElement.classList.add('dark');
+                      document.documentElement.setAttribute('data-theme', 'dark');
+                    } else if (parsed.theme === 'high-contrast') {
+                      document.documentElement.classList.add('high-contrast');
+                      document.documentElement.setAttribute('data-theme', 'high-contrast');
+                    }
+                    if (parsed.reducedMotion) {
+                      document.documentElement.classList.add('reduced-motion');
+                    }
+                  }
+                } catch (e) {}
+              })();
+            `,
+          }}
+        />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         {/* Load Inter font and Material Symbols Outlined & Material Icons */}
@@ -60,7 +84,7 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="Companio" />
       </head>
-      <body className="antialiased">
+      <body className="antialiased" suppressHydrationWarning>
         <AccessibilityProvider>
           <ActivityProvider>
             <ToastProvider>

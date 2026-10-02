@@ -23,6 +23,8 @@ export const SidebarNav: React.FC = () => {
     speak,
     userProfile,
     setIsAssistantOpen,
+    theme,
+    setThemeMode,
   } = useAccessibility();
 
   const sidebarRef =
@@ -320,6 +322,45 @@ export const SidebarNav: React.FC = () => {
                 </span>
               </button>
 
+            </div>
+
+            {/* Theme Quick Switcher */}
+            <div className="px-5 py-3 border-b border-outline-variant/60 flex flex-col gap-2 bg-surface-container-low/30">
+              <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wider">
+                Display Theme
+              </span>
+              <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-surface border border-outline-variant/60">
+                {(
+                  [
+                    { id: "standard", label: "Light", icon: "light_mode" },
+                    { id: "dark", label: "Dark", icon: "dark_mode" },
+                    { id: "high-contrast", label: "Contrast", icon: "contrast" },
+                  ] as const
+                ).map((t) => {
+                  const isCurrent = theme === t.id;
+                  return (
+                    <button
+                      key={t.id}
+                      onClick={() => {
+                        setThemeMode(t.id);
+                        speak(`${t.label} mode activated`, true);
+                      }}
+                      className={`flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        isCurrent
+                          ? "bg-primary text-white shadow-sm"
+                          : "text-on-surface-variant hover:bg-surface-container hover:text-on-surface"
+                      }`}
+                      aria-label={`${t.label} theme`}
+                      aria-pressed={isCurrent}
+                    >
+                      <span className="material-symbols-outlined text-sm">
+                        {t.icon}
+                      </span>
+                      <span>{t.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {/* Scrollable Navigation Links */}

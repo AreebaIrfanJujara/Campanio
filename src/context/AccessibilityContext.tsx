@@ -286,6 +286,52 @@ export const AccessibilityProvider: React.FC<{
   }, [state]);
 
   /*
+   * Apply Theme and Reduced Motion to DOM and sync meta theme-color
+   */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const root = document.documentElement;
+    const body = document.body;
+
+    root.classList.remove("dark", "high-contrast");
+    body.classList.remove("dark", "high-contrast");
+
+    if (state.theme === "dark") {
+      root.classList.add("dark");
+      body.classList.add("dark");
+      root.setAttribute("data-theme", "dark");
+    } else if (state.theme === "high-contrast") {
+      root.classList.add("high-contrast");
+      body.classList.add("high-contrast");
+      root.setAttribute("data-theme", "high-contrast");
+    } else {
+      root.setAttribute("data-theme", "standard");
+    }
+
+    if (state.reducedMotion) {
+      root.classList.add("reduced-motion");
+    } else {
+      root.classList.remove("reduced-motion");
+    }
+
+    // Sync mobile browser status bar / theme-color
+    let metaThemeColor = document.querySelector('meta[name="theme-color"]');
+    if (!metaThemeColor) {
+      metaThemeColor = document.createElement("meta");
+      metaThemeColor.setAttribute("name", "theme-color");
+      document.head.appendChild(metaThemeColor);
+    }
+    if (state.theme === "dark") {
+      metaThemeColor.setAttribute("content", "#111116");
+    } else if (state.theme === "high-contrast") {
+      metaThemeColor.setAttribute("content", "#000000");
+    } else {
+      metaThemeColor.setAttribute("content", "#1943c2");
+    }
+  }, [state.theme, state.reducedMotion]);
+
+  /*
    * Stop speaking
    */
   const stopSpeaking = useCallback(() => {
@@ -545,20 +591,34 @@ export const AccessibilityProvider: React.FC<{
    */
   const applyPreset = useCallback(
     (preset: PresetType) => {
-      setState((prev) => ({
-        ...prev,
-        userProfile: {
-          ...prev.userProfile,
-          preset,
-        },
-      }));
+      setState((prev) => {
+        let updatedTheme = prev.theme;
+        let updatedVoiceGuidance = prev.voiceGuidanceActive;
+
+        if (preset === "visual") {
+          updatedTheme = "high-contrast";
+          updatedVoiceGuidance = true;
+        } else if (preset === "standard" && prev.theme === "high-contrast") {
+          updatedTheme = "standard";
+        }
+
+        return {
+          ...prev,
+          theme: updatedTheme,
+          voiceGuidanceActive: updatedVoiceGuidance,
+          userProfile: {
+            ...prev.userProfile,
+            preset,
+          },
+        };
+      });
 
       const messages: Record<
         PresetType,
         string
       > = {
         visual:
-          "Visual accessibility mode selected.",
+          "Visual accessibility mode selected. High contrast mode activated.",
         hearing:
           "Hearing accessibility mode selected.",
         motor:

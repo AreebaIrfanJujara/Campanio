@@ -1,9 +1,10 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&family=Material+Icons&display=block');
 @import "tailwindcss";
 
-/* Make Tailwind's dark: variant respond to the .dark class on <body>, not the OS setting.
+/* Make Tailwind's dark: variant respond to .dark or [data-theme="dark"], not just OS setting.
    This keeps dark mode consistent with how .high-contrast already works. */
-@variant dark (&:where(.dark, .dark *));
+@variant dark (&:where(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *));
+@custom-variant dark (&:where(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *));
 
 @theme {
   --color-primary: var(--primary);
@@ -127,6 +128,7 @@
 :root.high-contrast,
 html.high-contrast,
 body.high-contrast,
+[data-theme="high-contrast"],
 .high-contrast {
   --primary: #ffd400;
   --primary-container: #ffd400;
@@ -155,6 +157,7 @@ body.high-contrast,
   --on-error: #ffffff;
   --on-error-container: #ff3333;
   --tertiary-fixed: #ffd400;
+  color-scheme: dark;
 }
 
 /* Dark Mode — Material Design 3 dark tonal palette.
@@ -162,6 +165,7 @@ body.high-contrast,
 :root.dark,
 html.dark,
 body.dark,
+[data-theme="dark"],
 .dark {
   --primary: #a8c7ff;
   --primary-container: #1943c2;
@@ -190,6 +194,7 @@ body.dark,
   --on-error: #690005;
   --on-error-container: #ffdad6;
   --tertiary-fixed: #ffd400;
+  color-scheme: dark;
 }
 
 body {
@@ -199,6 +204,15 @@ body {
   min-height: 100vh;
   margin: 0;
   transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Reduced motion preference */
+.reduced-motion *,
+.reduced-motion *::before,
+.reduced-motion *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
 }
 
 /* High Contrast adjustments */

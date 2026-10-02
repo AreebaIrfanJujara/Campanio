@@ -338,6 +338,7 @@ export default function SettingsPage() {
                     aria-checked={isActive}
                     onClick={() => {
                       setThemeMode(t);
+                      addToast(`${labels[t]} mode activated`, "info");
                       speak(
                         t === "standard"
                           ? "Light mode activated."
