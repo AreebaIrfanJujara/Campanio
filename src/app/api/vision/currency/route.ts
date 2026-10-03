@@ -1,15 +1,66 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 import { checkRateLimit, applyRateLimitHeaders, getCostCache, setCostCache } from "@/lib/rateLimit";
 
 const CURRENCY_CONTEXTS: Record<string, string[]> = {
   USD: ["usd", "dollar", "dollars", "federal reserve", "united states", "america", "$"],
   EUR: ["eur", "euro", "euros", "bce", "ecb", "€"],
   GBP: ["gbp", "pound", "pounds", "bank of england", "£"],
-  PKR: ["pkr", "pakistan", "rupee", "rupees", "state bank", "rs"],
+  PKR: ["pkr", "pakistan", "rupee", "rupees", "state bank", "بینک دولت پاکستان", "حکومت پاکستان", "rs"],
   INR: ["inr", "india", "rupee", "rupees", "reserve bank", "₹"],
 };
 
 const BANKNOTE_PATTERNS = [
+  // PKR (Ordered by denomination, with landmarks, Urdu words, and Urdu numerals)
+  {
+    denomination: 5000,
+    currency: "PKR",
+    symbol: "Rs ",
+    keywords: ["5000", "five thousand", "پانچ ہزار", "۵۰۰۰", "faisal mosque", "faisal masjid"],
+  },
+  {
+    denomination: 1000,
+    currency: "PKR",
+    symbol: "Rs ",
+    keywords: ["1000", "one thousand", "ایک ہزار", "۱۰۰۰", "islamia college"],
+  },
+  {
+    denomination: 500,
+    currency: "PKR",
+    symbol: "Rs ",
+    keywords: ["500", "five hundred", "پانچ سو", "۵۰۰", "badshahi mosque", "badshahi"],
+  },
+  {
+    denomination: 100,
+    currency: "PKR",
+    symbol: "Rs ",
+    keywords: ["100", "one hundred", "ایک سو", "۱۰۰", "ziarat residency", "ziarat"],
+  },
+  {
+    denomination: 75,
+    currency: "PKR",
+    symbol: "Rs ",
+    keywords: ["75", "seventy five", "پچھتر", "۷۵", "commemorative"],
+  },
+  {
+    denomination: 50,
+    currency: "PKR",
+    symbol: "Rs ",
+    keywords: ["50", "fifty", "پچاس", "۵۰", "karakoram", "k2"],
+  },
+  {
+    denomination: 20,
+    currency: "PKR",
+    symbol: "Rs ",
+    keywords: ["20", "twenty", "بیس", "۲۰", "mohenjo-daro", "mohenjodaro"],
+  },
+  {
+    denomination: 10,
+    currency: "PKR",
+    symbol: "Rs ",
+    keywords: ["10", "ten", "دس", "۱۰", "khyber pass", "khyber"],
+  },
+
   // USD
   { denomination: 100, currency: "USD", symbol: "$", keywords: ["100", "one hundred", "franklin"] },
   { denomination: 50, currency: "USD", symbol: "$", keywords: ["50", "fifty", "grant"] },
@@ -27,16 +78,6 @@ const BANKNOTE_PATTERNS = [
   { denomination: 10, currency: "EUR", symbol: "€", keywords: ["10", "ten"] },
   { denomination: 5, currency: "EUR", symbol: "€", keywords: ["5", "five"] },
 
-  // PKR
-  { denomination: 5000, currency: "PKR", symbol: "Rs ", keywords: ["5000", "five thousand"] },
-  { denomination: 1000, currency: "PKR", symbol: "Rs ", keywords: ["1000", "one thousand"] },
-  { denomination: 500, currency: "PKR", symbol: "Rs ", keywords: ["500", "five hundred"] },
-  { denomination: 100, currency: "PKR", symbol: "Rs ", keywords: ["100", "one hundred"] },
-  { denomination: 75, currency: "PKR", symbol: "Rs ", keywords: ["75", "seventy five"] },
-  { denomination: 50, currency: "PKR", symbol: "Rs ", keywords: ["50", "fifty"] },
-  { denomination: 20, currency: "PKR", symbol: "Rs ", keywords: ["20", "twenty"] },
-  { denomination: 10, currency: "PKR", symbol: "Rs ", keywords: ["10", "ten"] },
-
   // GBP
   { denomination: 50, currency: "GBP", symbol: "£", keywords: ["50", "fifty"] },
   { denomination: 20, currency: "GBP", symbol: "£", keywords: ["20", "twenty"] },
@@ -48,17 +89,23 @@ function parseCurrencyFromText(rawText: string) {
   const text = rawText.toLowerCase();
 
   // 1. Direct price tag match: e.g. $4.99 or Rs 500 or 20 EUR
-  const priceMatch = rawText.match(/(\$|€|£|Rs\.?|₹)\s*([0-9]+(?:\.[0-9]{1,2})?)/i) ||
-                     rawText.match(/([0-9]+(?:\.[0-9]{1,2})?)\s*(usd|eur|gbp|pkr|inr|dollars?|euros?|rupees?)/i);
+  const priceMatch =
+    rawText.match(/(\$|€|£|Rs\.?|PKR|₹)\s*([0-9]+(?:\.[0-9]{1,2})?)/i) ||
+    rawText.match(/([0-9]+(?:\.[0-9]{1,2})?)\s*(usd|eur|gbp|pkr|inr|dollars?|euros?|rupees?)/i);
 
-  // Check which currency context is present
+  // Check currency context
   for (const [curr, indicators] of Object.entries(CURRENCY_CONTEXTS)) {
-    const hasContext = indicators.some((ind) => text.includes(ind));
+    const hasContext = indicators.some((ind) => text.includes(ind.toLowerCase()));
     if (hasContext) {
       const candidates = BANKNOTE_PATTERNS.filter((b) => b.currency === curr);
       for (const pattern of candidates) {
         for (const kw of pattern.keywords) {
-          const regex = new RegExp(`(?:^|[^a-zA-Z0-9])${kw}(?:[^a-zA-Z0-9]|$)`, "i");
+          // Guard against partial serial number matches if kw is purely digits
+          const isNumeric = /^\d+$/.test(kw);
+          const regex = isNumeric
+            ? new RegExp(`(?<!\\d)${kw}(?!\\d)`)
+            : new RegExp(`(?:^|[^a-zA-Z0-9\u0600-\u06FF])${kw}(?:[^a-zA-Z0-9\u0600-\u06FF]|$)`, "i");
+
           if (regex.test(text)) {
             return {
               type: "banknote",
@@ -66,7 +113,8 @@ function parseCurrencyFromText(rawText: string) {
               currency: pattern.currency,
               symbol: pattern.symbol,
               description: `${pattern.symbol}${pattern.denomination} ${pattern.currency} Banknote`,
-              confidence: 0.94,
+              visualFeatures: `Matched ${kw} keyword from banknote text`,
+              confidence: 0.92,
               rawText: rawText.slice(0, 100),
             };
           }
@@ -77,13 +125,21 @@ function parseCurrencyFromText(rawText: string) {
 
   if (priceMatch) {
     const val = parseFloat(priceMatch[2] || priceMatch[1]);
-    const sym = priceMatch[1] === "€" ? "€" : priceMatch[1] === "£" ? "£" : (priceMatch[1]?.toLowerCase().includes("rs") ? "Rs " : "$");
+    const sym =
+      priceMatch[1] === "€"
+        ? "€"
+        : priceMatch[1] === "£"
+        ? "£"
+        : priceMatch[1]?.toLowerCase().includes("rs") || priceMatch[1]?.toLowerCase().includes("pkr")
+        ? "Rs "
+        : "$";
     return {
       type: "product",
       denomination: val,
       currency: sym === "€" ? "EUR" : sym === "£" ? "GBP" : sym === "Rs " ? "PKR" : "USD",
       symbol: sym,
       description: `Scanned Item Price: ${sym}${val.toFixed(2)}`,
+      visualFeatures: "Price tag detected",
       confidence: 0.88,
       rawText: rawText.slice(0, 100),
     };
@@ -110,7 +166,11 @@ export async function POST(req: NextRequest) {
       return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
     }
 
-    const cacheKey = `currency:${imageBase64.slice(0, 80)}`;
+    const cleanedBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "");
+
+    // SHA-256 hash based cache key to eliminate identical prefix collisions
+    const imageHash = crypto.createHash("sha256").update(cleanedBase64).digest("hex");
+    const cacheKey = `currency:${imageHash}`;
     const cached = getCostCache<any>(cacheKey);
     if (cached) {
       const res = NextResponse.json({ ...cached, cached: true });
@@ -118,10 +178,106 @@ export async function POST(req: NextRequest) {
       return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
     }
 
-    const cleanedBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "");
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Step 1: Primary Gemini Multimodal Vision AI
+    // ─────────────────────────────────────────────────────────────────────────────
+    const geminiApiKey = process.env.GEMINI_API_KEY;
+    if (geminiApiKey && cleanedBase64 && cleanedBase64 !== "simulated") {
+      try {
+        const geminiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`;
+
+        const prompt = `You are an expert currency and price tag recognition system designed for visually impaired and blind users.
+Analyze the image to accurately identify any cash banknote, coin, or product price tag.
+
+Pakistani Rupee (PKR) banknotes have distinctive characteristics:
+- 10 PKR: Olive green color, Khyber Pass Peshawar on back, Quaid-e-Azam portrait on front, Urdu numeral ۱۰
+- 20 PKR: Orange-brown color, Mohenjo-daro Larkana on back, Quaid-e-Azam portrait on front, Urdu numeral ۲۰
+- 50 PKR: Purple color, Karakoram K2 peak on back, Quaid-e-Azam portrait on front, Urdu numeral ۵۰
+- 75 PKR: Emerald green color, 75 Years Commemorative Note, Urdu numeral ۷۵
+- 100 PKR: Red / maroon color, Quaid-e-Azam Residency Ziarat on back, Quaid-e-Azam portrait on front, Urdu numeral ۱۰۰
+- 500 PKR: Greenish-tan / rich green-brown color, Badshahi Mosque Lahore on back, Quaid-e-Azam portrait on front, Urdu numeral ۵۰۰
+- 1000 PKR: Dark navy blue color, Islamia College Peshawar on back, Quaid-e-Azam portrait on front, Urdu numeral ۱۰۰۰
+- 5000 PKR: Mustard yellow / golden brown color, Faisal Mosque Islamabad on back, Quaid-e-Azam portrait on front, Urdu numeral ۵۰۰۰
+
+Also recognize other major currencies:
+- US Dollar (USD): $1, $2, $5, $10, $20, $50, $100
+- Euro (EUR): €5, €10, €20, €50, €100, €200, €500
+- British Pound (GBP): £5, £10, £20, £50
+- Indian Rupee (INR), Saudi Riyal (SAR), UAE Dirham (AED), Canadian Dollar (CAD), etc.
+- Also detect product price tags or receipt subtotals if visible.
+
+CRITICAL RULES:
+- DO NOT default to 100 PKR! Each PKR note has completely different colors and monuments. Inspect the color and landmarks carefully.
+- If no banknote, coin, or price tag is clearly visible, or if the image is too blurry/dark to identify with certainty, return "detected": false.
+- Never guess 100 PKR when the note is blue (1000 PKR), tan/green (500 PKR), mustard (5000 PKR), purple (50 PKR), brown (20 PKR), or olive (10 PKR).
+
+Return JSON ONLY with this schema:
+{
+  "detected": true or false,
+  "type": "banknote" | "product" | "coin" | "unknown",
+  "denomination": number or null,
+  "currency": string or null,
+  "symbol": string or null,
+  "description": string,
+  "visualFeatures": string,
+  "confidence": number
+}`;
+
+        const geminiRes = await fetch(geminiEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  { text: prompt },
+                  {
+                    inline_data: {
+                      mime_type: "image/jpeg",
+                      data: cleanedBase64,
+                    },
+                  },
+                ],
+              },
+            ],
+            generationConfig: {
+              responseMimeType: "application/json",
+              temperature: 0.1,
+            },
+          }),
+        });
+
+        if (geminiRes.ok) {
+          const data = await geminiRes.json();
+          const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (rawText) {
+            const parsed = JSON.parse(rawText);
+            if (parsed.detected && parsed.denomination && typeof parsed.denomination === "number") {
+              const defaultSym = parsed.currency === "PKR" ? "Rs " : parsed.currency === "EUR" ? "€" : parsed.currency === "GBP" ? "£" : "$";
+              const payload = {
+                type: parsed.type || "banknote",
+                denomination: parsed.denomination,
+                currency: parsed.currency || "PKR",
+                symbol: parsed.symbol || defaultSym,
+                description: parsed.description || `${parsed.symbol || defaultSym}${parsed.denomination} ${parsed.currency || "PKR"} Banknote`,
+                visualFeatures: parsed.visualFeatures || "",
+                confidence: parsed.confidence || 0.95,
+                source: "gemini-vision",
+              };
+              setCostCache(cacheKey, payload);
+              const res = NextResponse.json(payload);
+              res.headers.set("X-Cache", "MISS");
+              return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
+            }
+          }
+        }
+      } catch (geminiErr) {
+        console.warn("[Currency] Gemini Vision error, falling back to OCR:", geminiErr);
+      }
+    }
 
     // ─────────────────────────────────────────────────────────────────────────────
-    // Step 1: Real Live OCR-based Banknote & Price Detection (OCR.space Engine)
+    // Step 2: Fallback OCR Engine (OCR.space)
     // ─────────────────────────────────────────────────────────────────────────────
     if (cleanedBase64 && cleanedBase64 !== "simulated") {
       try {
@@ -158,50 +314,7 @@ export async function POST(req: NextRequest) {
           }
         }
       } catch (ocrErr) {
-        console.warn("[Currency] OCR.space extraction failed, falling through:", ocrErr);
-      }
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────────
-    // Step 2: Google Cloud Vision (Optional fallback)
-    // ─────────────────────────────────────────────────────────────────────────────
-    const apiKey = process.env.GOOGLE_CLOUD_VISION_API_KEY;
-    if (apiKey && cleanedBase64 && cleanedBase64 !== "simulated") {
-      try {
-        const endpoint = `https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`;
-        const response = await fetch(endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            requests: [
-              {
-                image: { content: cleanedBase64 },
-                features: [
-                  { type: "TEXT_DETECTION" },
-                  { type: "OBJECT_LOCALIZATION" },
-                ],
-              },
-            ],
-          }),
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          const fullText = (data.responses?.[0]?.fullTextAnnotation?.text || "");
-          const detected = parseCurrencyFromText(fullText);
-          if (detected) {
-            const payload = {
-              ...detected,
-              source: "google-cloud-vision",
-            };
-            setCostCache(cacheKey, payload);
-            const res = NextResponse.json(payload);
-            res.headers.set("X-Cache", "MISS");
-            return applyRateLimitHeaders(res, rateStatus.remaining, rateStatus.reset);
-          }
-        }
-      } catch (gcvErr) {
-        console.warn("[Currency] Google Cloud Vision failed, falling through:", gcvErr);
+        console.warn("[Currency] OCR.space fallback failed:", ocrErr);
       }
     }
 

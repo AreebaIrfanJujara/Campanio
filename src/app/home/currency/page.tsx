@@ -12,6 +12,7 @@ interface ScannedItem {
   amount: number;
   currency: string;
   symbol: string;
+  visualFeatures?: string;
   time: string;
 }
 
@@ -31,6 +32,8 @@ export default function CurrencyScannerPage() {
   const [cameraActive, setCameraActive] = useState<boolean>(true);
   const [isCameraLoading, setIsCameraLoading] = useState<boolean>(true);
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
+  const [torchOn, setTorchOn] = useState<boolean>(false);
+  const [torchAvailable, setTorchAvailable] = useState<boolean>(false);
 
   useEffect(() => {
     speak("Currency and product scanner active. Point your camera at a banknote or barcode.", true);
@@ -41,9 +44,24 @@ export default function CurrencyScannerPage() {
     };
   }, []);
 
+  const checkTorchCapability = (stream: MediaStream) => {
+    try {
+      const track = stream.getVideoTracks()[0];
+      if (track) {
+        const capabilities = (track as any).getCapabilities?.();
+        if (capabilities && "torch" in capabilities) {
+          setTorchAvailable(true);
+          return;
+        }
+      }
+    } catch {}
+    setTorchAvailable(false);
+  };
+
   const startCamera = async (targetFacing?: "environment" | "user") => {
     const facing = targetFacing || facingMode;
     setIsCameraLoading(true);
+    setTorchOn(false);
     try {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
@@ -52,7 +70,7 @@ export default function CurrencyScannerPage() {
       let stream: MediaStream;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { exact: facing }, width: { ideal: 1280 } },
+          video: { facingMode: { exact: facing }, width: { ideal: 1920 }, height: { ideal: 1080 } },
           audio: false,
         });
       } catch {
@@ -66,6 +84,7 @@ export default function CurrencyScannerPage() {
         }
       }
       streamRef.current = stream;
+      checkTorchCapability(stream);
       setCameraActive(true);
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -86,6 +105,23 @@ export default function CurrencyScannerPage() {
     const nextFacing = facingMode === "environment" ? "user" : "environment";
     setFacingMode(nextFacing);
     startCamera(nextFacing);
+  };
+
+  const toggleTorch = async () => {
+    if (!streamRef.current) return;
+    const track = streamRef.current.getVideoTracks()[0];
+    if (track) {
+      try {
+        const nextTorch = !torchOn;
+        await (track as any).applyConstraints({
+          advanced: [{ torch: nextTorch }],
+        });
+        setTorchOn(nextTorch);
+        speak(nextTorch ? "Flashlight turned on" : "Flashlight turned off", true);
+      } catch (e) {
+        console.warn("Torch failed to toggle", e);
+      }
+    }
   };
 
   const stopCamera = () => {
@@ -119,16 +155,16 @@ export default function CurrencyScannerPage() {
     if (videoRef.current && canvasRef.current && cameraActive) {
       const video = videoRef.current;
       const canvas = canvasRef.current;
-      const vw = video.videoWidth || 640;
-      const vh = video.videoHeight || 480;
-      const maxDim = 640;
+      const vw = video.videoWidth || 1280;
+      const vh = video.videoHeight || 720;
+      const maxDim = 960;
       const scale = Math.min(1, maxDim / Math.max(vw, vh));
       canvas.width = Math.round(vw * scale);
       canvas.height = Math.round(vh * scale);
       const ctx = canvas.getContext("2d");
       if (ctx) {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        imageBase64 = canvas.toDataURL("image/jpeg", 0.7);
+        imageBase64 = canvas.toDataURL("image/jpeg", 0.85);
       }
     }
 
@@ -140,7 +176,7 @@ export default function CurrencyScannerPage() {
 
     setIsScanning(true);
     wearableBridge.triggerHaptic("tap");
-    speak("Analyzing currency denomination...", true);
+    speak("Analyzing banknote denomination...", true);
 
     try {
       const res = await fetch("/api/vision/currency", {
@@ -151,26 +187,30 @@ export default function CurrencyScannerPage() {
 
       const data = await res.json();
       if (data.error || !data.denomination) {
-        speak("No banknote denomination recognized. Please ensure the bill is visible and well-lit.", true);
+        speak("No banknote denomination recognized. Please hold the bill flat and steady under good light.", true);
         addToast("No banknote recognized. Please try again.", "warning");
         return;
       }
 
+      const defaultSymbol = data.currency === "PKR" ? "Rs " : data.currency === "EUR" ? "€" : data.currency === "GBP" ? "£" : "$";
       const newItem: ScannedItem = {
         id: Date.now(),
         description: data.description,
         amount: data.denomination,
-        currency: data.currency || "USD",
-        symbol: data.symbol || "$",
+        currency: data.currency || "PKR",
+        symbol: data.symbol || defaultSymbol,
+        visualFeatures: data.visualFeatures,
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       };
 
       setLastScanned(newItem);
       setHistory((prev) => [newItem, ...prev]);
-      setRunningTotal((prev) => prev + newItem.amount);
+      const newTotal = runningTotal + newItem.amount;
+      setRunningTotal(newTotal);
 
       wearableBridge.triggerHaptic("success");
-      speak(`Detected: ${newItem.description}. Total wallet balance: ${newItem.symbol}${(runningTotal + newItem.amount).toFixed(2)}`, true);
+      const featureAnnounce = newItem.visualFeatures ? ` (${newItem.visualFeatures})` : "";
+      speak(`Detected: ${newItem.description}${featureAnnounce}. Total wallet balance: ${newItem.symbol}${newTotal.toLocaleString()}`, true);
       addToast(newItem.description, "success");
     } catch (e) {
       speak("Could not scan currency. Please aim camera at the banknote.", true);
@@ -211,18 +251,21 @@ export default function CurrencyScannerPage() {
           return;
         }
 
+        const defaultSymbol = data.currency === "PKR" ? "Rs " : data.currency === "EUR" ? "€" : data.currency === "GBP" ? "£" : "$";
         const newItem: ScannedItem = {
           id: Date.now(),
           description: data.description,
           amount: data.denomination,
-          currency: data.currency || "USD",
-          symbol: data.symbol || "$",
+          currency: data.currency || "PKR",
+          symbol: data.symbol || defaultSymbol,
+          visualFeatures: data.visualFeatures,
           time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         };
 
         setLastScanned(newItem);
         setHistory((prev) => [newItem, ...prev]);
-        setRunningTotal((prev) => prev + newItem.amount);
+        const newTotal = runningTotal + newItem.amount;
+        setRunningTotal(newTotal);
         speak(`Detected: ${newItem.description}`, true);
         addToast(newItem.description, "success");
       } catch {
@@ -235,6 +278,8 @@ export default function CurrencyScannerPage() {
     reader.readAsDataURL(file);
   };
 
+  const activeSymbol = lastScanned?.symbol || history[0]?.symbol || "Rs ";
+
   return (
     <div className="flex-grow flex flex-col px-margin-edge py-stack-lg gap-6 w-full text-on-surface">
       {/* Header & Total Counter */}
@@ -246,7 +291,10 @@ export default function CurrencyScannerPage() {
 
         <div className="bg-primary/10 border-2 border-primary/30 rounded-2xl px-4 py-2 text-right">
           <span className="text-xs uppercase font-extrabold text-primary block">Total Tally</span>
-          <span className="text-2xl font-black text-primary">${runningTotal.toFixed(2)}</span>
+          <span className="text-2xl font-black text-primary">
+            {activeSymbol}
+            {runningTotal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+          </span>
         </div>
       </div>
 
@@ -289,27 +337,47 @@ export default function CurrencyScannerPage() {
             </div>
           )}
 
-          {/* Switch Camera Button */}
-          <button
-            type="button"
-            onClick={toggleCamera}
-            aria-label={`Switch camera. Currently using ${facingMode === "environment" ? "back" : "front"} camera.`}
-            title="Switch Camera (Front / Back)"
-            className="absolute top-4 right-4 z-20 w-11 h-11 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md text-white border border-white/25 shadow-lg flex items-center justify-center active:scale-90 transition-all cursor-pointer"
-          >
-            <span className="material-symbols-outlined text-2xl">flip_camera_ios</span>
-          </button>
+          {/* Controls: Torch & Switch Camera */}
+          <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
+            {torchAvailable && (
+              <button
+                type="button"
+                onClick={toggleTorch}
+                aria-label={torchOn ? "Turn off flashlight" : "Turn on flashlight"}
+                title={torchOn ? "Turn off flashlight" : "Turn on flashlight"}
+                className={`w-11 h-11 rounded-full backdrop-blur-md border shadow-lg flex items-center justify-center active:scale-90 transition-all cursor-pointer ${
+                  torchOn
+                    ? "bg-amber-400 text-black border-amber-300"
+                    : "bg-black/60 hover:bg-black/80 text-white border-white/25"
+                }`}
+              >
+                <span className="material-symbols-outlined text-2xl">
+                  {torchOn ? "flashlight_on" : "flashlight_off"}
+                </span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={toggleCamera}
+              aria-label={`Switch camera. Currently using ${facingMode === "environment" ? "back" : "front"} camera.`}
+              title="Switch Camera (Front / Back)"
+              className="w-11 h-11 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md text-white border border-white/25 shadow-lg flex items-center justify-center active:scale-90 transition-all cursor-pointer"
+            >
+              <span className="material-symbols-outlined text-2xl">flip_camera_ios</span>
+            </button>
+          </div>
 
           {/* Framing Guide for Banknotes */}
           <div className="absolute inset-8 border-2 border-dashed border-[#ffd400] rounded-2xl pointer-events-none flex items-center justify-center">
             <span className="bg-black/60 backdrop-blur-sm text-[#ffd400] font-extrabold text-xs px-3 py-1 rounded-full uppercase tracking-wider">
-              Align Banknote or Barcode
+              Align Banknote or Price Tag
             </span>
           </div>
 
           {/* Scanning sweep indicator */}
           {isScanning && (
-            <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
+            <div className="absolute inset-0 bg-primary/20 backdrop-blur-[2px] flex items-center justify-center">
               <div className="w-10 h-10 rounded-full border-4 border-white border-t-transparent animate-spin"></div>
             </div>
           )}
@@ -332,17 +400,20 @@ export default function CurrencyScannerPage() {
                 addToast("No currency recognized", "warning");
                 return;
               }
+              const defaultSymbol = data.currency === "PKR" ? "Rs " : data.currency === "EUR" ? "€" : data.currency === "GBP" ? "£" : "$";
               const newItem: ScannedItem = {
                 id: Date.now(),
                 description: data.description,
                 amount: data.denomination,
-                currency: data.currency || "USD",
-                symbol: data.symbol || "$",
+                currency: data.currency || "PKR",
+                symbol: data.symbol || defaultSymbol,
+                visualFeatures: data.visualFeatures,
                 time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
               };
               setLastScanned(newItem);
               setHistory((prev) => [newItem, ...prev]);
-              setRunningTotal((prev) => prev + newItem.amount);
+              const newTotal = runningTotal + newItem.amount;
+              setRunningTotal(newTotal);
               speak(`Detected: ${newItem.description}`, true);
               addToast(newItem.description, "success");
             } catch {
@@ -394,13 +465,21 @@ export default function CurrencyScannerPage() {
               <p className="text-xl font-extrabold text-emerald-800 dark:text-emerald-300">
                 {lastScanned.description}
               </p>
-              <p className="text-xs font-bold text-on-surface-variant">
-                Value: {lastScanned.symbol}{lastScanned.amount.toFixed(2)} {lastScanned.currency} • {lastScanned.time}
+              {lastScanned.visualFeatures && (
+                <p className="text-xs text-on-surface-variant font-medium mt-0.5">
+                  {lastScanned.visualFeatures}
+                </p>
+              )}
+              <p className="text-xs font-bold text-on-surface-variant mt-1">
+                Value: {lastScanned.symbol}{lastScanned.amount.toLocaleString()} {lastScanned.currency} • {lastScanned.time}
               </p>
             </div>
           </div>
           <button
-            onClick={() => speak(`Identified: ${lastScanned.description}`, true)}
+            onClick={() => {
+              const feat = lastScanned.visualFeatures ? ` (${lastScanned.visualFeatures})` : "";
+              speak(`Identified: ${lastScanned.description}${feat}`, true);
+            }}
             className="w-10 h-10 rounded-xl bg-emerald-500 text-white flex items-center justify-center shadow cursor-pointer active:scale-95"
             aria-label="Read bill aloud"
           >
@@ -426,9 +505,19 @@ export default function CurrencyScannerPage() {
 
           <div className="flex flex-col gap-2 max-h-48 overflow-y-auto">
             {history.map((item) => (
-              <div key={item.id} className="flex justify-between items-center py-2 px-3 bg-surface rounded-xl border border-outline-variant text-sm">
-                <span className="font-bold text-on-surface">{item.description}</span>
-                <span className="font-mono font-extrabold text-primary">+{item.symbol}{item.amount.toFixed(2)}</span>
+              <div
+                key={item.id}
+                className="flex justify-between items-center py-2 px-3 bg-surface rounded-xl border border-outline-variant text-sm"
+              >
+                <div>
+                  <span className="font-bold text-on-surface block">{item.description}</span>
+                  {item.visualFeatures && (
+                    <span className="text-[11px] text-on-surface-variant">{item.visualFeatures}</span>
+                  )}
+                </div>
+                <span className="font-mono font-extrabold text-primary">
+                  +{item.symbol}{item.amount.toLocaleString()}
+                </span>
               </div>
             ))}
           </div>
